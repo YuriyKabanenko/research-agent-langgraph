@@ -1,0 +1,163 @@
+PROJECT: Self-Checking Research Assistant
+CLIENT BRIEF (as received)
+-----------------------------------------
+We need a tool that takes a question or topic, researches it, and gives us
+a solid written answer — not just a first draft. It should double check its
+own work before handing it back, and try again if the first attempt is weak.
+We don't want to babysit it; give it a topic and walk away, and get a report
+back at the end. It should tell us when it's not confident, and log how many
+attempts it took.
+
+-----------------------------------------
+ACTORS
+-----------------------------------------
+- End User: person submitting a research topic/question and reading the final report.
+- System: the agent itself (research node, critique node, loop controller).
+
+-----------------------------------------
+USER STORIES
+-----------------------------------------
+
+US-1: Submit a research topic
+As an End User, I want to submit a topic or question in plain text,
+so that the system can start researching it without any special formatting.
+
+Acceptance Criteria:
+- Accepts a free-text string as input (question or topic).
+- Rejects/handles empty input gracefully with a clear message.
+- Kicks off the research process automatically on submission.
+
+---
+
+US-2: Get an initial researched answer
+As an End User, I want the system to produce a first-draft answer using
+available tools/sources, so that I have something concrete to evaluate.
+
+Acceptance Criteria:
+- System calls at least one research/tool step (e.g. search, lookup) before drafting.
+- Draft answer is stored as part of the run's state, not discarded.
+- Draft includes what sources/tools were used, if any.
+
+---
+
+US-3: Automatic self-critique of the draft
+As an End User, I want the system to critique its own draft against the
+original question, so that weak or incomplete answers get caught before
+they reach me.
+
+Acceptance Criteria:
+- A distinct step evaluates the draft against the original question.
+- Critique produces a verdict: "good enough" or "needs revision".
+- Critique includes a reason when the verdict is "needs revision"
+  (e.g. missing detail, unsupported claim, off-topic).
+
+---
+
+US-4: Automatic retry loop on weak answers
+As an End User, I want the system to go back and research/revise
+automatically when its own critique says the draft isn't good enough,
+so that I don't have to manually ask it to try again.
+
+Acceptance Criteria:
+- On "needs revision" verdict, system loops back to the research/draft step.
+- Each loop iteration is counted and recorded.
+- Revised draft is re-submitted to critique after each attempt.
+
+---
+
+US-5: Retry limit / stop condition
+As an End User, I want the system to stop retrying after a reasonable
+number of attempts, so that it doesn't loop forever or burn unlimited
+tokens on a question it can't answer well.
+
+Acceptance Criteria:
+- Maximum retry count is configurable (default suggested: 3).
+- When the limit is hit without a "good enough" verdict, system returns
+  the best available draft rather than erroring out.
+- Output clearly indicates if the limit was hit (i.e. answer is "best effort",
+  not "fully verified").
+
+---
+
+US-6: Final report with confidence and attempt count
+As an End User, I want the final output to include the answer, how many
+attempts it took, and whether the system is confident in it, so that I know
+how much to trust the result.
+
+Acceptance Criteria:
+- Final output includes: final answer text, number of attempts, final
+  critique verdict (confident / best-effort).
+- Output format is readable as plain text (not raw internal state dump).
+
+---
+
+US-7: Run history / transparency
+As an End User, I want to see what happened at each step (what was
+researched, what the critique said each round), so that I can understand
+why the system arrived at its final answer.
+
+Acceptance Criteria:
+- Each iteration's draft and critique feedback is retained in the run state,
+  not overwritten.
+- On request, the full step-by-step history can be printed/inspected,
+  separate from the short final report.
+
+---
+
+US-8 (stretch): Configurable strictness
+As an End User, I want to control how strict the self-critique is
+(e.g. "quick answer" vs "thorough answer"), so that I can trade off
+speed/cost against depth depending on the situation.
+
+Acceptance Criteria:
+- A strictness/mode parameter influences the critique step's bar for
+  "good enough".
+- Behavior difference between modes is observable (e.g. stricter mode
+  produces more retries on the same question).
+
+-----------------------------------------
+NON-FUNCTIONAL NOTES
+-----------------------------------------
+- Should run as a script/CLI for now; no UI required.
+- Must not loop indefinitely under any circumstance (see US-5).
+- State from each run should be inspectable for debugging purposes (see US-7).
+
+-----------------------------------------
+KNOWN GAPS — FIRST WORKING VERSION
+-----------------------------------------
+Punch list from reviewing the first working implementation against the stories
+above. Nothing here is broken/crashing; these are places where behavior falls
+short of the acceptance criteria they're filed under.
+
+- (US-1) main.py reads the topic from sys.argv[0] with no length check — running
+  the script with zero arguments raises an unhandled IndexError instead of the
+  clear message US-1 asks for. validate_input's own empty/oversized-topic
+  handling is fine; this is specifically about the "no argument at all" case.
+
+- (US-2) The only tool wired up is get_current_date, a utility — not an actual
+  research/lookup capability (web search, document lookup, etc.). Right now
+  initial_research and research are Claude answering from its own training
+  knowledge, not "researching" in the sense the client brief describes.
+
+- (US-2) ResearchStep.tools_used is declared in the state schema but no node
+  ever populates it — dead field.
+
+- (US-6) The data needed for "attempts + confidence" already exists in state
+  (len(research_steps), and whether the loop ended via a "good enough" verdict
+  vs. hitting retry_max_count) but main.py only prints
+  final_response["content"]. Need to actually surface attempt count and a
+  confident/best-effort label in the printed output.
+
+- (US-7) research_steps retains every iteration's draft, satisfying the
+  "not overwritten" part of this story, but there's no way to actually view
+  that history separately from the short final report (e.g. a --verbose flag
+  or a separate dump of research_steps/critical_analysis per iteration).
+
+- (US-8, stretch) research_mode exists on ResearchState but no node reads it —
+  strictness is not wired to anything yet.
+
+- (cleanup, not a story) graph.py still has its own leftover main()/
+  __main__ block with a hardcoded topic and an initial-state dict that's
+  missing the critical_analysis key (main.py's is the correct/current one).
+  Two entrypoints with drifted initial-state shapes — worth deleting the one
+  in graph.py once main.py is confirmed as the real entrypoint.
