@@ -16,6 +16,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
+    password_hash: Mapped[str] = mapped_column(nullable=False)
     agents: Mapped[List["Agent"]] = relationship(back_populates="user")
     tokens: Mapped[List["AuthToken"]] = relationship(back_populates="user")
 

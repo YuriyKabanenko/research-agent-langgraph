@@ -7,7 +7,7 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def hash_token(token: str) -> str:
+def hash_string(token: str) -> str:
     """One-way digest stored in the DB in place of the plaintext token.
 
     Plain SHA-256 (not a slow KDF like bcrypt) is fine here: the input is already

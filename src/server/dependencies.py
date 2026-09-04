@@ -5,7 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.auth import hash_token
+from server.auth import hash_string
 from server.db.base import AuthToken, User
 from server.db.session import get_db_session
 from server.models.agent_models import AgentConfig
@@ -50,7 +50,7 @@ async def get_current_user(
         )
 
     result = await session.execute(
-        select(User).join(AuthToken).where(AuthToken.token_hash == hash_token(token))
+        select(User).join(AuthToken).where(AuthToken.token_hash == hash_string(token))
     )
     user = result.scalar_one_or_none()
     if user is None:
