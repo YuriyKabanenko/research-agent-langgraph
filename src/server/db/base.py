@@ -62,7 +62,7 @@ class AgentConfig(Base):
     agent: Mapped["Agent"] = relationship(back_populates="config")
 
 class Research(Base):
-    __table__ = "researches"
+    __tablename__ = "researches"
     
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
