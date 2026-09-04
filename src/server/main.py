@@ -2,21 +2,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Body, Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from research_assistant.graph import agent as compiled_agent
 from server.auth import generate_token, hash_string
-from server.db.base import AuthToken, User
+from server.db.base import AuthToken, User, Research
 from server.db.session import engine, get_db_session
 from server.dependencies import get_agent_service, get_current_user, get_db_service
 from server.models.auth_models import *
+from server.models.research_models import *
 from server.services.agent_service import AgentService
 from server.services.db_service import DBService
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,6 +35,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    logger.warning("Integrity error on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=409, content={"detail": "Conflict with existing data"})
+
+
+@app.exception_handler(OperationalError)
+async def operational_error_handler(request: Request, exc: OperationalError):
+    logger.error("Database unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": "Database unavailable"})
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
+    logger.exception("Unhandled database error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/health")
@@ -73,11 +97,20 @@ async def login(
 
 @app.post("/research")
 async def research(
-    topic: Annotated[str, Body()],
-    service: Annotated[AgentService, Depends(get_agent_service)],
+    topic: ResearchRequest,
+    agent_service: Annotated[AgentService, Depends(get_agent_service)],
+    research_service: Annotated[DBService[Research], Depends(get_db_service(Research))],
     user: Annotated[User, Depends(get_current_user)],
-):
+) -> ResearchResponse:
     try:
-        return await service.invoke(topic)
+        topic, response = await agent_service.invoke(topic)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        await research_service.create(topic=topic, resarch=response, user_id=user.id)
+    except SQLAlchemyError:
+        logger.exception("Failed to persist research result for user %s", user.id)
+        await research_service.session.rollback()
+
+    return ResearchResponse(topic=topic, research=response)

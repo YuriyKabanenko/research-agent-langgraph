@@ -30,4 +30,4 @@ class AgentService:
         if result.get("error_message"):
             raise ValueError(result["error_message"])
 
-        return result["final_response"]
+        return result["topic"], result["final_response"]

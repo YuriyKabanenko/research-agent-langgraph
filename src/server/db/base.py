@@ -17,8 +17,10 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     password_hash: Mapped[str] = mapped_column(nullable=False)
+    
     agents: Mapped[List["Agent"]] = relationship(back_populates="user")
     tokens: Mapped[List["AuthToken"]] = relationship(back_populates="user")
+    researches: Mapped[List["Research"]] = relationship(back_populates="user")
 
 
 class AuthToken(Base):
@@ -58,4 +60,13 @@ class AgentConfig(Base):
     api_token: Mapped[str] = mapped_column(nullable=False)
     
     agent: Mapped["Agent"] = relationship(back_populates="config")
+
+class Research(Base):
+    __table__ = "researches"
     
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    topic: Mapped[str] = mapped_column(String(255), nullable=False)
+    resarch: Mapped[str] = mapped_column(nullable=False)
+    
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user: Mapped["User"] = relationship(back_populates="researches")
