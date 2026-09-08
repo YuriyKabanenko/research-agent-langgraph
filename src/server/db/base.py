@@ -5,6 +5,7 @@ import enum
 from sqlalchemy import ForeignKey, String, Uuid, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from research_assistant.state import ResearchMode
+from server.models.research_models import ResearchStatus
 
 class Base(DeclarativeBase):
     """Base class every ORM model should inherit from once the schema is defined."""
@@ -66,7 +67,10 @@ class Research(Base):
     
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
-    resarch: Mapped[str] = mapped_column(nullable=False)
-    
+    # Null until the background research task finishes.
+    resarch: Mapped[Optional[str]] = mapped_column(nullable=True)
+    status: Mapped[ResearchStatus] = mapped_column(nullable=False, default=ResearchStatus.pending)
+    error_message: Mapped[Optional[str]] = mapped_column(nullable=True)
+
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     user: Mapped["User"] = relationship(back_populates="researches")
