@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +13,8 @@ class ResearchStatus(enum.Enum):
 
 
 class ResearchRequest(BaseModel):
-    topic: str = Field(min_length=1, max_length=100)
+    topic: str = Field(min_length=5)
+    agent_id: uuid.UUID
 
 
 class ResearchAcceptedResponse(BaseModel):
@@ -25,4 +27,8 @@ class ResearchResponse(BaseModel):
     topic: str
     status: ResearchStatus
     research: str | None = None
+    tools_used: list[str] | None = None
+    research_rate: int | None = None
     error_message: str | None = None
+    created_at: datetime
+    agent_name: str

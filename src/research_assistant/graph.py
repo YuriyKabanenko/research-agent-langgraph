@@ -1,6 +1,7 @@
 from langgraph.graph import StateGraph, START, END
-from research_assistant.state import ResearchState
+from research_assistant.state import ResearchState, ModelFamily
 from research_assistant.nodes import *
+from research_assistant.llm import model as llm_model
 
 agent_builder = StateGraph(ResearchState)
 
@@ -30,6 +31,8 @@ agent = agent_builder.compile()
 def main():
     initial_state = {
         "topic": "What is the sum of 125 and 225?",
+        "model_family": ModelFamily.anthropic,
+        "model_name": llm_model.DEFAULT_MODEL_NAME,
         "research_steps": [],
         "error_message": "",
         "retry_max_count": 3,

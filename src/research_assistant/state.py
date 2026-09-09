@@ -5,8 +5,13 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 class ResearchMode(Enum):
-    quick = 1,
-    thorough = 2,
+    quick = "quick"
+    thorough = "thorough"
+
+class ModelFamily(Enum):
+    anthropic = "anthropic"
+    openai = "openai"
+    google = "google"
 
 class ResearchStep(TypedDict):
     content: str
@@ -17,6 +22,8 @@ class ResearchStep(TypedDict):
 class ResearchState(TypedDict):
     topic: Annotated[str, "The research topic being investigated."]
     research_mode: Annotated[ResearchMode, "The mode of research being conducted (quick or thorough)."] = ResearchMode.quick
+    model_family: Annotated[ModelFamily, "Which LLM provider family to run research on."] = ModelFamily.anthropic
+    model_name: Annotated[str, "The specific model name to use within model_family."] = ""
     research_plan: Annotated[str, "The research plan outlining the steps to be taken during the research process."] = ""
     research_steps: Annotated[list[ResearchStep], "The steps taken during the research process.", operator.add] = []
     messages: Annotated[list[BaseMessage], "Full LLM conversation history, including tool calls and tool results.", add_messages] = []

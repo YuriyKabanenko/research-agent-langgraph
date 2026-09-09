@@ -75,50 +75,80 @@ curl -X POST http://127.0.0.1:8000/register \
 
 Returns `{"user_id", "name", "token"}` — the token is only ever returned here, store it.
 
-### `GET /login`
-
-Note this is a `GET` with a JSON body, so `curl` needs `-X GET` explicit (it switches to `POST`
-automatically when `-d` is given without `-X`):
+### `POST /login`
 
 ```
-curl -X GET http://127.0.0.1:8000/login \
+curl -X POST http://127.0.0.1:8000/login \
   -H "Content-Type: application/json" \
   -d '{"name": "alice", "password": "hunter22"}'
 ```
 
 Returns a fresh `{"token"}`.
 
+### `GET /agents` — list your agents
+
+```
+curl http://127.0.0.1:8000/agents -H "Authorization: Bearer <token>"
+```
+
+Returns `[{"id", "name", "user_id", "has_config"}]`. Only agents owned by the caller.
+
+### `POST /agents` — create an agent
+
+```
+curl -X POST http://127.0.0.1:8000/agents \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+```
+
+Returns `201` with `{"id", "name", "user_id", "has_config": false}`. An agent isn't usable for
+research until it also has a config (below).
+
+### `POST /agents/{agent_id}/config` — configure an agent
+
+```
+curl -X POST http://127.0.0.1:8000/agents/<agent_id>/config \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"api_token": "<anthropic-api-key>", "research_mode": "quick", "retry_max_count": 3, "critique_threshold": 6}'
+```
+
+Returns `201` with `{"agent_id", "research_mode", "retry_max_count", "critique_threshold"}`
+(`api_token` is accepted but never echoed back). `404` if the agent doesn't exist or isn't yours,
+`409` if it already has a config (one config per agent).
+
 ### `POST /research` — start a research run
 
 Research runs in the background (it can take a while), so this returns immediately with a job id
-instead of the result:
+instead of the result. `agent_id` must reference one of your own, configured agents:
 
 ```
 curl -X POST http://127.0.0.1:8000/research \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{
-        "body": {"topic": "quantum computing"},
-        "config": {"token": "<anthropic-api-key>", "research_mode": [1], "retry_max_count": 3, "critique_threshold": 6}
-      }'
+  -d '{"topic": "quantum computing", "agent_id": "<agent_id>"}'
 ```
 
 Returns `202` with `{"id", "status": "pending"}`.
 
-> **Note:** the request body is nested (`body`/`config`), not the flat `{"topic", "config"}` shape
-> described in the root `CLAUDE.md` — `get_agent_service`'s `config: AgentConfig` parameter is an
-> implicit second body param, so FastAPI nests both by name. Also note `research_mode` currently
-> has to be passed as `[1]` (quick) or `[2]` (thorough) — a trailing comma in `ResearchMode`
-> (`research_assistant/state.py`) accidentally makes its values 1-tuples instead of plain ints.
-> Both are pre-existing quirks, not intentional API design.
+### `GET /research` — list your research runs
 
-### `GET /research/{id}` — poll for the result
+```
+curl http://127.0.0.1:8000/research -H "Authorization: Bearer <token>"
+```
+
+Returns `[{"id", "topic", "status", "research", "error_message", "created_at", "agent_name"}]`,
+newest first.
+
+### `GET /research/{id}` — poll a single run
 
 ```
 curl http://127.0.0.1:8000/research/<id> \
   -H "Authorization: Bearer <token>"
 ```
 
-Returns `{"id", "topic", "status", "research", "error_message"}`. `status` moves
-`pending` → `running` → `completed` or `failed`; `research` is `null` until `completed`,
-`error_message` is `null` unless `failed`. 404s if the id doesn't exist or belongs to another user.
+Returns `{"id", "topic", "status", "research", "error_message", "created_at", "agent_name"}`.
+`status` moves `pending` → `running` → `completed` or `failed`; `research` is `null` until
+`completed`, `error_message` is `null` unless `failed`. 404s if the id doesn't exist or belongs
+to another user.

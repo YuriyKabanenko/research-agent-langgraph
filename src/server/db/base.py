@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import enum
 from sqlalchemy import ForeignKey, String, Uuid, DateTime
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from research_assistant.state import ResearchMode
+from research_assistant.state import ModelFamily, ResearchMode
 from server.models.research_models import ResearchStatus
 
 class Base(DeclarativeBase):
@@ -24,6 +25,17 @@ class User(Base):
     researches: Mapped[List["Research"]] = relationship(back_populates="user")
 
 
+class Agent(Base):
+    __tablename__ = "agents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user: Mapped["User"] = relationship(back_populates="agents")
+    config: Mapped[Optional["AgentConfig"]] = relationship(back_populates="agent", uselist=False)
+    researches: Mapped[List["Research"]] = relationship(back_populates="agent")
+
+
 class AuthToken(Base):
     __tablename__ = "auth_tokens"
 
@@ -41,16 +53,6 @@ class AuthToken(Base):
     user: Mapped["User"] = relationship(back_populates="tokens")
 
 
-class Agent(Base):
-    __tablename__ = "agents"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    user: Mapped["User"] = relationship(back_populates="agents")
-    config: Mapped[Optional["AgentConfig"]] = relationship(back_populates="agent", uselist=False)
-
-
 class AgentConfig(Base):
     __tablename__ = "agent_configs"
 
@@ -59,7 +61,9 @@ class AgentConfig(Base):
     retry_max_count: Mapped[int] = mapped_column(nullable=False)
     critique_threshold: Mapped[int] = mapped_column(nullable=False)
     api_token: Mapped[str] = mapped_column(nullable=False)
-    
+    model_family: Mapped[ModelFamily] = mapped_column(nullable=False)
+    model_name: Mapped[str] = mapped_column(nullable=False)
+
     agent: Mapped["Agent"] = relationship(back_populates="config")
 
 class Research(Base):
@@ -69,8 +73,18 @@ class Research(Base):
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
     # Null until the background research task finishes.
     resarch: Mapped[Optional[str]] = mapped_column(nullable=True)
+    # Deduplicated - the winning research step may have called the same tool
+    # more than once across retries, but there's no value in listing it twice here.
+    tools_used: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
+    research_rate: Mapped[Optional[int]] = mapped_column(nullable=True)
     status: Mapped[ResearchStatus] = mapped_column(nullable=False, default=ResearchStatus.pending)
     error_message: Mapped[Optional[str]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     user: Mapped["User"] = relationship(back_populates="researches")
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
+    agent: Mapped["Agent"] = relationship(back_populates="researches")

@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FastAPI: server.main",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": ["server.main:app"],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": true
+        },
+        {
+            "name": "FastAPI: server.main (with --reload)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": ["server.main:app", "--reload"],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "justMyCode": true,
+            "subProcess": true
+        }
+    ]
+}

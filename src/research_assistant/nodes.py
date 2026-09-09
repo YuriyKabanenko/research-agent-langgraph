@@ -27,7 +27,7 @@ RESEARCH_RATE_RE = re.compile(r"research_rate\s*=\s*(\d+)")
 CRITIQUE_RATE_RE = re.compile(r"critique_rate\s*=\s*(\d+)")
 
 
-def _extract_research_content(response_text: str) -> str:
+def _extract_research_content(response_text: str, model_family, model_name: str) -> str:
     match = RESEARCH_TAG_RE.search(response_text)
     if match:
         return match.group(1).strip()
@@ -35,14 +35,17 @@ def _extract_research_content(response_text: str) -> str:
     # Model didn't follow the <research> tag format - fall back to a focused,
     # context-free call whose only job is pulling the content out, rather than
     # guessing with more regex.
-    fallback = model.ask([
-        SystemMessage(EXTRACT_RESEARCH_CONTENT_PROMPT),
-        HumanMessage(response_text),
-    ])
+    fallback = model.ask(
+        [SystemMessage(EXTRACT_RESEARCH_CONTENT_PROMPT), HumanMessage(response_text)],
+        model_family=model_family,
+        model_name=model_name,
+    )
     return fallback[-1].content.strip()
 
 
-def _extract_research_rate(response_text: str, topic: str, plan: str, content: str) -> int:
+def _extract_research_rate(
+    response_text: str, topic: str, plan: str, content: str, model_family, model_name: str
+) -> int:
     match = RESEARCH_RATE_RE.search(response_text)
     if match:
         return int(match.group(1))
@@ -50,25 +53,29 @@ def _extract_research_rate(response_text: str, topic: str, plan: str, content: s
     # Model didn't follow the research_rate=X format - rate the already-extracted
     # content in isolation (fresh context, no tool-call noise or commentary) so the
     # judgment reflects the notes themselves, not formatting quirks in the response.
-    fallback = model.ask([
-        SystemMessage(RATE_RESEARCH_SYSTEM_PROMPT(topic, plan)),
-        HumanMessage(content),
-    ])
+    fallback = model.ask(
+        [SystemMessage(RATE_RESEARCH_SYSTEM_PROMPT(topic, plan)), HumanMessage(content)],
+        model_family=model_family,
+        model_name=model_name,
+    )
     fallback_text = fallback[-1].content.strip()
     return int(re.search(r"\d+", fallback_text).group())
 
 
-def _extract_critique_rate(response_text: str, topic: str, plan: str, content: str) -> int:
+def _extract_critique_rate(
+    response_text: str, topic: str, plan: str, content: str, model_family, model_name: str
+) -> int:
     match = CRITIQUE_RATE_RE.search(response_text)
     if match:
         return int(match.group(1))
 
     # Model didn't follow the critique_rate=X format - fall back to rating the
     # content directly with the shared rating prompt.
-    fallback = model.ask([
-        SystemMessage(RATE_RESEARCH_SYSTEM_PROMPT(topic, plan)),
-        HumanMessage(content),
-    ])
+    fallback = model.ask(
+        [SystemMessage(RATE_RESEARCH_SYSTEM_PROMPT(topic, plan)), HumanMessage(content)],
+        model_family=model_family,
+        model_name=model_name,
+    )
     fallback_text = fallback[-1].content.strip()
     return int(re.search(r"\d+", fallback_text).group())
 
@@ -97,10 +104,12 @@ def research_plan(state: ResearchState):
     system = _system_message("You are a research assistant. Please provide a research plan for the topic: " + state["topic"])
     human = HumanMessage("Topic is: " + state["topic"] + "\n Provide only a research plan with steps to follow.")
     
-    response = model.ask([system, human])
-    
+    response = model.ask(
+        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    )
+
     plan = response[-1].content.strip()
-    
+
     return {"research_plan": plan}
 
 # Research node. Core of researching process.
@@ -122,10 +131,19 @@ def llm_research(state: ResearchState):
         f"Research so far:\n{research_so_far}\n\nAdditional instructions: {instruction}"
     )
 
-    new_messages = model.ask([system, human])
+    new_messages = model.ask(
+        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    )
     response_text = new_messages[-1].content
-    content = _extract_research_content(response_text)
-    rate = _extract_research_rate(response_text, state["topic"], state["research_plan"], content)
+    content = _extract_research_content(response_text, state["model_family"], state["model_name"])
+    rate = _extract_research_rate(
+        response_text,
+        state["topic"],
+        state["research_plan"],
+        content,
+        state["model_family"],
+        state["model_name"],
+    )
 
     step = ResearchStep(content=content, tools_used=_tools_used(new_messages), research_rate=rate)
 
@@ -139,9 +157,18 @@ def critical_analysis(state: ResearchState):
     system = _system_message(CRITIQUE_SYSTEM_PROMPT)
     human = HumanMessage( "Topic: " + state["topic"] + "\n" + state["research_steps"][-1]["content"])
 
-    new_messages = model.ask([system, human])
+    new_messages = model.ask(
+        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    )
     verdict = new_messages[-1].content
-    critique_rate = _extract_critique_rate(verdict, state["topic"], state["research_plan"], state["research_steps"][-1]["content"])
+    critique_rate = _extract_critique_rate(
+        verdict,
+        state["topic"],
+        state["research_plan"],
+        state["research_steps"][-1]["content"],
+        state["model_family"],
+        state["model_name"],
+    )
     research_is_done = critique_rate >= state["critique_threshold"]
 
     return {

@@ -33,6 +33,11 @@ files are empty stubs. `langchain-anthropic` and `anthropic` are installed but n
   tracing vars. Both entrypoints call `load_dotenv()` with no arguments, which searches upward from
   the current working directory — run Python from the repo root (or a subdirectory of it), not from
   somewhere unrelated, or the key won't be found.
+- `frontend/` is a separate Node/npm project (Vite + React + TypeScript), unrelated to the Python
+  `src/` layout above — `pyproject.toml`'s package discovery doesn't see it. Needs Node.js/npm
+  installed separately (see `frontend/README.md` if present, or just `cd frontend && npm install`).
+  Run it with `cd frontend && npm run dev` — its dev server proxies `/api/*` to the FastAPI server
+  at `http://localhost:8000` (see `frontend/vite.config.ts`), so both need to be running together.
 
 ## Running the graph
 
