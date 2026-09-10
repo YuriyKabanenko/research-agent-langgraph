@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from research_assistant.graph import agent as compiled_agent
 from server.auth import generate_token, hash_string
+from server.crypto import encrypt_token
 from server.db.base import Agent, AgentConfig as AgentConfigOrm, AuthToken, User, Research
 from server.db.session import async_session_factory, engine, get_db_session
 from server.dependencies import get_agent_service, get_current_user, get_db_service
@@ -187,7 +188,7 @@ async def create_agent_config(
         research_mode=body.research_mode,
         retry_max_count=body.retry_max_count,
         critique_threshold=body.critique_threshold,
-        api_token=body.api_token,
+        api_token=encrypt_token(body.api_token),
         model_family=body.model_family,
         model_name=body.model_name,
     )
@@ -248,7 +249,7 @@ async def update_agent_config(
         "critique_threshold": body.critique_threshold,
     }
     if body.api_token:
-        values["api_token"] = body.api_token
+        values["api_token"] = encrypt_token(body.api_token)
 
     record = await config_service.update(agent_id, **values)
     return AgentConfigResponse(

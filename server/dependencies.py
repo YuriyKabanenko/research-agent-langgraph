@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import hash_string
+from server.crypto import decrypt_token
 from server.db.base import Agent, AgentConfig as AgentConfigOrm, AuthToken, User
 from server.db.session import get_db_session
 from server.models.agent_models import AgentConfig
@@ -75,7 +76,7 @@ async def get_agent_service(
 
     config = AgentConfig(
         research_mode=config_row.research_mode,
-        token=config_row.api_token,
+        token=decrypt_token(config_row.api_token),
         retry_max_count=config_row.retry_max_count,
         critique_threshold=config_row.critique_threshold,
         model_family=config_row.model_family,
