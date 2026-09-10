@@ -5,14 +5,21 @@ import {
   Box,
   Button,
   FormControl,
+  IconButton,
+  InputAdornment,
   InputLabel,
-  Link,
   MenuItem,
   Select,
+  Slider,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
+import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
+import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import { useCreateAgentConfig } from "../hooks/useAgents";
 import { ApiError } from "../api/client";
 import type { ModelFamily, ResearchMode } from "../api/types";
@@ -23,6 +30,7 @@ import {
   MODEL_FAMILY_LABELS,
   MODELS_BY_FAMILY,
 } from "../constants/models";
+import { FormCard } from "./FormCard";
 
 interface AgentConfigFormProps {
   agentId: string;
@@ -37,6 +45,7 @@ export function AgentConfigForm({ agentId, agentName }: AgentConfigFormProps) {
   const [retryMaxCount, setRetryMaxCount] = useState(3);
   const [critiqueThreshold, setCritiqueThreshold] = useState(6);
   const [apiToken, setApiToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
   const [modelFamily, setModelFamily] = useState<ModelFamily>(DEFAULT_MODEL_FAMILY);
   const [modelName, setModelName] = useState(DEFAULT_MODEL_NAME);
   const createAgentConfig = useCreateAgentConfig();
@@ -65,93 +74,151 @@ export function AgentConfigForm({ agentId, agentName }: AgentConfigFormProps) {
 
   if (createAgentConfig.isSuccess) {
     return (
-      <Stack spacing={2}>
-        <Alert severity="success">Agent "{agentName}" is configured.</Alert>
-        <Link component={RouterLink} to="/agents">
-          Back to agents
-        </Link>
-      </Stack>
+      <FormCard icon={<CheckCircleRoundedIcon />} title="You're all set">
+        <Stack spacing={2}>
+          <Alert severity="success" variant="outlined">
+            Agent "{agentName}" is configured and ready to research.
+          </Alert>
+          <Button component={RouterLink} to="/agents" variant="contained">
+            Back to agents
+          </Button>
+        </Stack>
+      </FormCard>
     );
   }
 
   return (
-    <Box component="form" onSubmit={handleSubmit}>
-      <Stack spacing={2}>
-        <Typography variant="h6">Configure "{agentName}"</Typography>
-        {createAgentConfig.isError && (
-          <Alert severity="error">
-            {createAgentConfig.error instanceof ApiError
-              ? createAgentConfig.error.detail
-              : "Failed to create config"}
-          </Alert>
-        )}
-        <FormControl>
-          <InputLabel id="research-mode-label">Research mode</InputLabel>
-          <Select
-            labelId="research-mode-label"
-            label="Research mode"
-            value={researchMode}
-            onChange={(e) => setResearchMode(e.target.value as ResearchMode)}
-          >
-            <MenuItem value="quick">Quick</MenuItem>
-            <MenuItem value="thorough">Thorough</MenuItem>
-          </Select>
-        </FormControl>
-        <FormControl>
-          <InputLabel id="model-family-label">Model provider</InputLabel>
-          <Select
-            labelId="model-family-label"
-            label="Model provider"
-            value={modelFamily}
-            onChange={(e) => handleModelFamilyChange(e.target.value as ModelFamily)}
-          >
-            {MODEL_FAMILIES.map((family) => (
-              <MenuItem key={family} value={family}>
-                {MODEL_FAMILY_LABELS[family]}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl>
-          <InputLabel id="model-name-label">Model</InputLabel>
-          <Select
-            labelId="model-name-label"
-            label="Model"
-            value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
-          >
-            {MODELS_BY_FAMILY[modelFamily].map((name) => (
-              <MenuItem key={name} value={name}>
-                {name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <TextField
-          label="Retry max count"
-          type="number"
-          value={retryMaxCount}
-          onChange={(e) => setRetryMaxCount(Number(e.target.value))}
-          required
-        />
-        <TextField
-          label="Critique threshold"
-          type="number"
-          value={critiqueThreshold}
-          onChange={(e) => setCritiqueThreshold(Number(e.target.value))}
-          required
-        />
-        <TextField
-          label="API token"
-          type="password"
-          value={apiToken}
-          onChange={(e) => setApiToken(e.target.value)}
-          required
-        />
-        <Button type="submit" variant="contained" disabled={createAgentConfig.isPending}>
-          Save config
-        </Button>
-      </Stack>
-    </Box>
+    <FormCard
+      icon={<TuneRoundedIcon />}
+      title={`Configure "${agentName}"`}
+      description="Choose a model and tune how hard the agent tries before it settles."
+    >
+      <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Stack spacing={2.5}>
+          {createAgentConfig.isError && (
+            <Alert severity="error">
+              {createAgentConfig.error instanceof ApiError
+                ? createAgentConfig.error.detail
+                : "Failed to create config"}
+            </Alert>
+          )}
+          <FormControl fullWidth>
+            <InputLabel id="research-mode-label">Research mode</InputLabel>
+            <Select
+              labelId="research-mode-label"
+              label="Research mode"
+              value={researchMode}
+              onChange={(e) => setResearchMode(e.target.value as ResearchMode)}
+            >
+              <MenuItem value="quick">Quick</MenuItem>
+              <MenuItem value="thorough">Thorough</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl fullWidth>
+            <InputLabel id="model-family-label">Model provider</InputLabel>
+            <Select
+              labelId="model-family-label"
+              label="Model provider"
+              value={modelFamily}
+              onChange={(e) => handleModelFamilyChange(e.target.value as ModelFamily)}
+            >
+              {MODEL_FAMILIES.map((family) => (
+                <MenuItem key={family} value={family}>
+                  {MODEL_FAMILY_LABELS[family]}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth>
+            <InputLabel id="model-name-label">Model</InputLabel>
+            <Select
+              labelId="model-name-label"
+              label="Model"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+            >
+              {MODELS_BY_FAMILY[modelFamily].map((name) => (
+                <MenuItem key={name} value={name}>
+                  {name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Retry max count: {retryMaxCount}
+            </Typography>
+            <Slider
+              value={retryMaxCount}
+              onChange={(_, v) => setRetryMaxCount(v as number)}
+              min={1}
+              max={10}
+              step={1}
+              marks
+              valueLabelDisplay="auto"
+            />
+            <Typography variant="caption" color="text.secondary">
+              How many research/critique loops before it gives up and returns its best draft.
+            </Typography>
+          </Box>
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Critique threshold: {critiqueThreshold}/10
+            </Typography>
+            <Slider
+              value={critiqueThreshold}
+              onChange={(_, v) => setCritiqueThreshold(v as number)}
+              min={0}
+              max={10}
+              step={1}
+              marks
+              valueLabelDisplay="auto"
+            />
+            <Typography variant="caption" color="text.secondary">
+              The self-critique score a draft needs to clear before the loop stops.
+            </Typography>
+          </Box>
+
+          <TextField
+            label="API token"
+            type={showToken ? "text" : "password"}
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
+            required
+            helperText="Encrypted at rest — never shown again after this."
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <VpnKeyOutlinedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowToken((v) => !v)}
+                      edge="end"
+                      size="small"
+                      aria-label={showToken ? "Hide token" : "Show token"}
+                    >
+                      {showToken ? (
+                        <VisibilityOffRoundedIcon fontSize="small" />
+                      ) : (
+                        <VisibilityRoundedIcon fontSize="small" />
+                      )}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+          <Button type="submit" variant="contained" size="large" disabled={createAgentConfig.isPending}>
+            {createAgentConfig.isPending ? "Saving…" : "Save config"}
+          </Button>
+        </Stack>
+      </Box>
+    </FormCard>
   );
 }

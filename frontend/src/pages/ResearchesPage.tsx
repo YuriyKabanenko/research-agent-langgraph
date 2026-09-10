@@ -1,23 +1,40 @@
+import { useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
 import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
   Chip,
   CircularProgress,
-  Container,
+  IconButton,
   Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import type { ChipProps } from "@mui/material";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { useDeleteResearch, useResearches } from "../hooks/useResearch";
 import { ApiError } from "../api/client";
 import type { ResearchResponse, ResearchStatus } from "../api/types";
+import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/EmptyState";
+import { useConfirm } from "../components/ConfirmDialogProvider";
+import { ResearchDetailDialog } from "../components/ResearchDetailDialog";
 
 const STATUS_COLOR: Record<ResearchStatus, ChipProps["color"]> = {
   pending: "default",
@@ -26,66 +43,74 @@ const STATUS_COLOR: Record<ResearchStatus, ChipProps["color"]> = {
   failed: "error",
 };
 
-function slugify(topic: string): string {
-  return topic.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-function downloadResearchMarkdown(run: ResearchResponse) {
-  const lines = [
-    `# ${run.topic}`,
-    "",
-    `- **Agent:** ${run.agent_name}`,
-    `- **Rate:** ${run.research_rate != null ? `${run.research_rate}/10` : "n/a"}`,
-    `- **Tools used:** ${run.tools_used && run.tools_used.length > 0 ? run.tools_used.join(", ") : "none"}`,
-    `- **Created:** ${new Date(run.created_at).toLocaleString()}`,
-    "",
-    "---",
-    "",
-    run.research ?? "",
-  ];
-
-  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
-  const url = URL.createObjectURL(blob);
-  const slug = slugify(run.topic) || "research";
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${slug}-${run.id.slice(0, 8)}.md`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 export function ResearchesPage() {
   const research = useResearches();
   const deleteResearch = useDeleteResearch();
+  const confirm = useConfirm();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const [viewing, setViewing] = useState<ResearchResponse | null>(null);
 
-  function handleDelete(run: ResearchResponse) {
-    if (!window.confirm(`Delete research "${run.topic}"? This cannot be undone.`)) {
-      return;
-    }
-    deleteResearch.mutate(run.id);
+  async function handleDelete(run: ResearchResponse) {
+    const ok = await confirm({
+      title: `Delete "${run.topic}"?`,
+      description: "This research run and its result will be permanently removed.",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (ok) deleteResearch.mutate(run.id);
   }
 
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h5">Research</Typography>
-        <Button variant="outlined" onClick={() => research.refetch()} disabled={research.isFetching}>
-          Refresh
-        </Button>
-      </Box>
+  const rows = research.data ?? [];
 
-      {research.isLoading && <CircularProgress />}
+  return (
+    <Box>
+      <PageHeader
+        title="Research"
+        description="Every run this account has started, newest results included."
+        action={
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Refresh">
+              <span>
+                <IconButton onClick={() => research.refetch()} disabled={research.isFetching}>
+                  <RefreshRoundedIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Button component={RouterLink} to="/research/new" variant="contained" startIcon={<AddRoundedIcon />}>
+              New research
+            </Button>
+          </Stack>
+        }
+      />
+
+      {research.isLoading && (
+        <Stack sx={{ alignItems: "center", py: 8 }}>
+          <CircularProgress />
+        </Stack>
+      )}
       {research.isError && <Alert severity="error">Failed to load research runs.</Alert>}
       {deleteResearch.isError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {deleteResearch.error instanceof ApiError
-            ? deleteResearch.error.detail
-            : "Failed to delete research"}
+          {deleteResearch.error instanceof ApiError ? deleteResearch.error.detail : "Failed to delete research"}
         </Alert>
       )}
 
-      {research.isSuccess && (
-        <TableContainer component={Paper}>
+      {research.isSuccess && rows.length === 0 && (
+        <EmptyState
+          icon={<TravelExploreOutlinedIcon />}
+          title="No research runs yet"
+          description="Pick a configured agent and give it a topic to research."
+          action={
+            <Button component={RouterLink} to="/research/new" variant="contained" startIcon={<AddRoundedIcon />}>
+              Start research
+            </Button>
+          }
+        />
+      )}
+
+      {research.isSuccess && rows.length > 0 && isDesktop && (
+        <TableContainer component={Paper} variant="outlined">
           <Table>
             <TableHead>
               <TableRow>
@@ -93,66 +118,82 @@ export function ResearchesPage() {
                 <TableCell>Agent</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Rate</TableCell>
-                <TableCell>Tools used</TableCell>
                 <TableCell>Created</TableCell>
-                <TableCell>Result</TableCell>
-                <TableCell />
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {research.data.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell>{run.topic}</TableCell>
+              {rows.map((run) => (
+                <TableRow key={run.id} hover>
+                  <TableCell sx={{ maxWidth: 280, overflowWrap: "anywhere" }}>{run.topic}</TableCell>
                   <TableCell>{run.agent_name}</TableCell>
                   <TableCell>
                     <Chip label={run.status} color={STATUS_COLOR[run.status]} size="small" />
                   </TableCell>
                   <TableCell>{run.research_rate != null ? `${run.research_rate}/10` : "—"}</TableCell>
-                  <TableCell sx={{ maxWidth: 200 }}>
-                    {run.tools_used && run.tools_used.length > 0 ? (
-                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                        {run.tools_used.map((tool) => (
-                          <Chip key={tool} label={tool} size="small" variant="outlined" />
-                        ))}
-                      </Box>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
                   <TableCell>{new Date(run.created_at).toLocaleString()}</TableCell>
-                  <TableCell sx={{ maxWidth: 400, whiteSpace: "pre-wrap" }}>
-                    {run.status === "completed" && (
-                      <Button size="small" variant="outlined" onClick={() => downloadResearchMarkdown(run)}>
-                        Download .md
-                      </Button>
-                    )}
-                    {run.status === "failed" && (
-                      <Box component="span" sx={{ color: "error.main" }}>
-                        {run.error_message}
-                      </Box>
-                    )}
-                  </TableCell>
                   <TableCell align="right">
-                    <Button
-                      size="small"
-                      color="error"
-                      disabled={deleteResearch.isPending}
-                      onClick={() => handleDelete(run)}
-                    >
-                      Delete
-                    </Button>
+                    <Stack direction="row" spacing={0.5} sx={{ justifyContent: "flex-end" }}>
+                      <Tooltip title="View details">
+                        <IconButton size="small" onClick={() => setViewing(run)}>
+                          <VisibilityOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={deleteResearch.isPending}
+                          onClick={() => handleDelete(run)}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
-              {research.data.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8}>No research runs yet.</TableCell>
-                </TableRow>
-              )}
             </TableBody>
           </Table>
         </TableContainer>
       )}
-    </Container>
+
+      {research.isSuccess && rows.length > 0 && !isDesktop && (
+        <Stack spacing={1.5}>
+          {rows.map((run) => (
+            <Card key={run.id} variant="outlined">
+              <CardContent>
+                <Stack direction="row" spacing={1} sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <Typography variant="subtitle2" sx={{ overflowWrap: "anywhere" }}>
+                    {run.topic}
+                  </Typography>
+                  <Chip label={run.status} color={STATUS_COLOR[run.status]} size="small" />
+                </Stack>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {run.agent_name} · {new Date(run.created_at).toLocaleDateString()}
+                  {run.research_rate != null ? ` · ${run.research_rate}/10` : ""}
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                  <Button size="small" startIcon={<VisibilityOutlinedIcon fontSize="small" />} onClick={() => setViewing(run)}>
+                    View
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    disabled={deleteResearch.isPending}
+                    startIcon={<DeleteOutlineRoundedIcon fontSize="small" />}
+                    onClick={() => handleDelete(run)}
+                  >
+                    Delete
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+      )}
+
+      <ResearchDetailDialog run={viewing} onClose={() => setViewing(null)} />
+    </Box>
   );
 }

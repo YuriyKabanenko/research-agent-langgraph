@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { Alert, Box, Button, Container, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Stack, TextField } from "@mui/material";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import { useCreateAgent } from "../hooks/useAgents";
 import { ApiError } from "../api/client";
 import { AgentConfigForm } from "../components/AgentConfigForm";
+import { FormCard } from "../components/FormCard";
 
 export function NewAgentPage() {
   const [name, setName] = useState("");
@@ -13,40 +15,31 @@ export function NewAgentPage() {
     createAgent.mutate({ name });
   }
 
-  return (
-    <Container maxWidth="xs">
-      <Stack spacing={4} sx={{ mt: 8 }}>
-        <Box component="form" onSubmit={handleSubmit}>
-          <Stack spacing={2}>
-            <Typography variant="h5">New agent</Typography>
-            {createAgent.isError && (
-              <Alert severity="error">
-                {createAgent.error instanceof ApiError
-                  ? createAgent.error.detail
-                  : "Failed to create agent"}
-              </Alert>
-            )}
-            <TextField
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              disabled={createAgent.isSuccess}
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={createAgent.isPending || createAgent.isSuccess}
-            >
-              Create agent
-            </Button>
-          </Stack>
-        </Box>
+  if (createAgent.isSuccess) {
+    return <AgentConfigForm agentId={createAgent.data.id} agentName={createAgent.data.name} />;
+  }
 
-        {createAgent.isSuccess && (
-          <AgentConfigForm agentId={createAgent.data.id} agentName={createAgent.data.name} />
-        )}
-      </Stack>
-    </Container>
+  return (
+    <FormCard icon={<AddRoundedIcon />} title="New agent" description="Give it a name — you'll set its model next.">
+      <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Stack spacing={2.5}>
+          {createAgent.isError && (
+            <Alert severity="error">
+              {createAgent.error instanceof ApiError ? createAgent.error.detail : "Failed to create agent"}
+            </Alert>
+          )}
+          <TextField
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            autoFocus
+          />
+          <Button type="submit" variant="contained" size="large" disabled={createAgent.isPending}>
+            {createAgent.isPending ? "Creating…" : "Create agent"}
+          </Button>
+        </Stack>
+      </Box>
+    </FormCard>
   );
 }

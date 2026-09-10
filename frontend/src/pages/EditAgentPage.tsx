@@ -4,19 +4,25 @@ import {
   Alert,
   Box,
   Button,
-  CircularProgress,
-  Container,
   FormControl,
+  IconButton,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Select,
+  Slider,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
+import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
+import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAgentConfig, useUpdateAgent, useUpdateAgentConfig } from "../hooks/useAgents";
 import { ApiError } from "../api/client";
 import type { ResearchMode } from "../api/types";
+import { FormCard } from "../components/FormCard";
 
 interface EditAgentLocationState {
   agentName?: string;
@@ -40,6 +46,7 @@ export function EditAgentPage() {
   const [retryMaxCount, setRetryMaxCount] = useState(3);
   const [critiqueThreshold, setCritiqueThreshold] = useState(6);
   const [apiToken, setApiToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     if (config.data) {
@@ -76,12 +83,9 @@ export function EditAgentPage() {
   const saveError = updateAgent.error ?? updateAgentConfig.error;
 
   return (
-    <Container maxWidth="xs" sx={{ mt: 8 }}>
-      <Box component="form" onSubmit={handleSubmit}>
-        <Stack spacing={2}>
-          <Typography variant="h5">Edit agent</Typography>
-
-          {config.isLoading && <CircularProgress size={24} />}
+    <FormCard icon={<SettingsOutlinedIcon />} title="Edit agent" description="Update its name or tune its behavior.">
+      <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Stack spacing={2.5}>
           {config.isError && (
             <Alert severity="error">
               {config.error instanceof ApiError ? config.error.detail : "Failed to load config"}
@@ -93,9 +97,9 @@ export function EditAgentPage() {
             </Alert>
           )}
 
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
 
-          <FormControl>
+          <FormControl fullWidth disabled={config.isLoading}>
             <InputLabel id="research-mode-label">Research mode</InputLabel>
             <Select
               labelId="research-mode-label"
@@ -107,33 +111,78 @@ export function EditAgentPage() {
               <MenuItem value="thorough">Thorough</MenuItem>
             </Select>
           </FormControl>
-          <TextField
-            label="Retry max count"
-            type="number"
-            value={retryMaxCount}
-            onChange={(e) => setRetryMaxCount(Number(e.target.value))}
-            required
-          />
-          <TextField
-            label="Critique threshold"
-            type="number"
-            value={critiqueThreshold}
-            onChange={(e) => setCritiqueThreshold(Number(e.target.value))}
-            required
-          />
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Retry max count: {retryMaxCount}
+            </Typography>
+            <Slider
+              value={retryMaxCount}
+              onChange={(_, v) => setRetryMaxCount(v as number)}
+              min={1}
+              max={10}
+              step={1}
+              marks
+              valueLabelDisplay="auto"
+              disabled={config.isLoading}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+              Critique threshold: {critiqueThreshold}/10
+            </Typography>
+            <Slider
+              value={critiqueThreshold}
+              onChange={(_, v) => setCritiqueThreshold(v as number)}
+              min={0}
+              max={10}
+              step={1}
+              marks
+              valueLabelDisplay="auto"
+              disabled={config.isLoading}
+            />
+          </Box>
+
           <TextField
             label="API token"
-            type="password"
+            type={showToken ? "text" : "password"}
             value={apiToken}
             onChange={(e) => setApiToken(e.target.value)}
             placeholder="Leave blank to keep current token"
+            helperText="Only fill this in to replace the stored token."
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <VpnKeyOutlinedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowToken((v) => !v)}
+                      edge="end"
+                      size="small"
+                      aria-label={showToken ? "Hide token" : "Show token"}
+                    >
+                      {showToken ? (
+                        <VisibilityOffRoundedIcon fontSize="small" />
+                      ) : (
+                        <VisibilityRoundedIcon fontSize="small" />
+                      )}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
-          <Button type="submit" variant="contained" disabled={isSaving || config.isLoading}>
-            Save changes
+          <Button type="submit" variant="contained" size="large" disabled={isSaving || config.isLoading}>
+            {isSaving ? "Saving…" : "Save changes"}
           </Button>
         </Stack>
       </Box>
-    </Container>
+    </FormCard>
   );
 }
