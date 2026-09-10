@@ -23,6 +23,7 @@ dependencies = [
     "sqlalchemy[asyncio]",
     "asyncpg",
     "alembic",
+    "cryptography",
 ]
 
 [tool.setuptools.packages.find]
