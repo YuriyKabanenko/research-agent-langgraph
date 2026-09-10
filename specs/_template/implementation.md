@@ -28,7 +28,7 @@ whether it needs a reducer (e.g. `operator.add` for an append-only list, like
 Note if this touches the mock functions (`llm_initial_research`, `llm_research`,
 `research_done`) or wires up a real model/tool call for the first time.
 
-## Server / API changes (`src/server/`)
+## Server / API changes (`server/`)
 
 Any change to request/response models, routes, or `AgentConfig` fields.
 

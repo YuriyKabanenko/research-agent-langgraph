@@ -5,7 +5,7 @@ Generic single-database configuration with an async dbapi.
 Run these from the repo root (so `load_dotenv()` picks up `.env` for `DATABASE_URL`).
 
 ```
-# Create a new migration from changes made to the models in src/server/db/base.py
+# Create a new migration from changes made to the models in server/db/base.py
 .venv/Scripts/python.exe -m alembic revision --autogenerate -m "short description"
 
 # Apply all migrations up to the latest

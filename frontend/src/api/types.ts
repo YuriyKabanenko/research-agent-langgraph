@@ -1,4 +1,4 @@
-// Mirrors the Pydantic models in src/server/models/*.py 1:1. Keep in sync by hand -
+// Mirrors the Pydantic models in server/models/*.py 1:1. Keep in sync by hand -
 // there's no shared schema generation between the two sides.
 
 export type ResearchMode = "quick" | "thorough";

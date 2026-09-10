@@ -4,94 +4,173 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-This is a **self-checking research assistant** built on LangGraph. It takes a topic/question,
-produces a draft answer, critiques its own draft, and loops back to research again if the
-critique says the draft isn't good enough — up to a configurable retry limit. The full spec
-(client brief + user stories US-1 through US-8) lives in `user_stories.txt` at the repo root;
-consult it before changing graph behavior, since it defines the intended acceptance criteria
-(e.g. empty-input handling, retry counting, best-effort vs. confident final output, run history).
+Self-checking research assistant: takes a topic, drafts a research answer via an LLM (with real
+web-search and date tools), critiques its own draft, and loops back to research again if the
+critique isn't good enough — up to a configurable retry limit. Three parts live in this repo:
 
-The implementation is a work in progress: `llm/model.py` currently contains mock functions
-(`llm_initial_research`, `llm_research`, `research_done`) that return canned strings / random
-booleans instead of calling a real model, and `llm/tools.py`, `main.py`, and both `__init__.py`
-files are empty stubs. `langchain-anthropic` and `anthropic` are installed but not yet wired up.
+- **`research_assistant/`** — the LangGraph agent (state machine, prompts, LLM/tool calls).
+  Runnable standalone as a CLI.
+- **`server/`** — a FastAPI app that wraps the agent with auth, Postgres-backed persistence
+  (users, agents, agent configs, research runs), and an async job API.
+- **`frontend/`** — a Vite + React + TypeScript SPA (MUI, TanStack Query, Zustand, React Router)
+  that talks to the server.
+
+`user_stories.txt` at the repo root is the original client brief (US-1..US-8) plus a "known gaps"
+punch list from an earlier review of the first working version — consult it before changing graph
+behavior, but treat the gaps list as a point-in-time snapshot rather than a live TODO (e.g. it
+predates `search_in_web` being wired up as a real tool).
 
 ## Environment
 
 - Python virtualenv at `.venv/`. Activate it or call `.venv/Scripts/python.exe` directly (Windows).
-- The repo is a `src/` layout, installed editable via `pyproject.toml` at the repo root
-  (`.venv/Scripts/python.exe -m pip install -e . --no-deps`). It contains two packages,
-  `research_assistant` (`src/research_assistant/`) and `server` (`src/server/`), both using
-  absolute imports (`from research_assistant.state import ...`, `from server.models.agent_models
-  import ...`). No `sys.path` manipulation is needed anywhere — if the editable install ever goes
-  stale (e.g. after moving files), re-run the `pip install -e .` above.
-- Key dependencies (declared in `pyproject.toml`): `langgraph`, `langchain`, `langchain-anthropic`,
-  `anthropic`, `tavily-python`, `fastapi`, `uvicorn`, `pydantic`, `python-dotenv`, `pillow`.
-- No test runner, linter, or formatter is installed in this environment (no pytest/ruff/black/mypy).
-  Don't assume `pytest`/`ruff` commands work — verify changes by running the graph directly.
-- `.env` lives at the repo root (gitignored) and holds `API_KEY`, `TAVILY_API_KEY`, and LangSmith
-  tracing vars. Both entrypoints call `load_dotenv()` with no arguments, which searches upward from
-  the current working directory — run Python from the repo root (or a subdirectory of it), not from
-  somewhere unrelated, or the key won't be found.
-- `frontend/` is a separate Node/npm project (Vite + React + TypeScript), unrelated to the Python
-  `src/` layout above — `pyproject.toml`'s package discovery doesn't see it. Needs Node.js/npm
-  installed separately (see `frontend/README.md` if present, or just `cd frontend && npm install`).
-  Run it with `cd frontend && npm run dev` — its dev server proxies `/api/*` to the FastAPI server
-  at `http://localhost:8000` (see `frontend/vite.config.ts`), so both need to be running together.
+- `research_assistant/` and `server/` are top-level packages, installed editable via the root
+  `pyproject.toml` (`.venv/Scripts/python.exe -m pip install -e . --no-deps`). Both use absolute
+  imports (`from research_assistant.state import ...`, `from server.db.base import ...`). No
+  `sys.path` manipulation is needed anywhere — if the editable install ever goes stale (e.g. after
+  moving files), re-run the `pip install -e .` above.
+- `.env` at the repo root (gitignored) holds: `API_KEY` (Anthropic), `TAVILY_API_KEY`,
+  `LANGSMITH_*` (tracing), `DATABASE_URL`, `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` (the
+  Postgres superuser, used to bootstrap the `db` container), and `APP_DB_USER`/`APP_DB_PASSWORD`
+  (the non-superuser role the app actually connects as, created by
+  `docker-init/init-app-role.sh`). Both Python entrypoints and Alembic call `load_dotenv()` with
+  no arguments, which searches upward from the current working directory — run Python from the
+  repo root (or a subdirectory of it).
+- `frontend/` is a separate Node/npm project, unrelated to the Python packages above —
+  `cd frontend && npm install`, then `npm run dev`. Its dev server proxies `/api/*` to the FastAPI
+  server, target controlled by the `BACKEND_URL` env var (defaults to `http://localhost:8000`; see
+  `frontend/vite.config.ts`).
 
-## Running the graph
+## Running things
 
-Because the project is an editable install, both packages are importable from anywhere — run from
-the repo root so `load_dotenv()` finds `.env`:
+### The LangGraph agent alone (CLI)
 
 ```
 .venv/Scripts/python.exe -m research_assistant.main "your topic here"
 ```
 
-`research_assistant/graph.py` still has an `if __name__ == "__main__":` block that runs a hardcoded
-sample topic through `agent.invoke(...)` and makes a real LLM call — don't execute
-`graph.py` directly unless you mean to trigger that; import it as a module instead
-(`import research_assistant.graph`), which only builds the compiled graph and has no side effects.
+Prints the winning research step's content, or an error message. `research_assistant/graph.py`
+still has its own leftover `if __name__ == "__main__":` block with a hardcoded topic and an
+initial-state dict missing the `critical_analysis` key — `main.py` is the real entrypoint; import
+`graph` as a module (`import research_assistant.graph`) rather than running it directly.
 
-To run the FastAPI server:
+### The FastAPI server
 
 ```
 .venv/Scripts/python.exe -m uvicorn server.main:app --reload
 ```
 
-`POST /research` takes a JSON body of `{"topic": "...", "config": {...AgentConfig fields...}}` and
-returns the winning `ResearchStep`.
+Interactive docs at `http://127.0.0.1:8000/docs`. See `server/README.md` for the full endpoint
+list (`/register`, `/login`, `/agents`, `/agents/{id}/config`, `/research`, ...) — auth is a
+bearer token returned by `/register`/`/login`, stored hashed (SHA-256) in `auth_tokens`.
+
+### Database migrations (Alembic)
+
+Postgres must be reachable at `DATABASE_URL` first (`docker compose up -d db`, or your own).
+
+```
+.venv/Scripts/python.exe -m alembic upgrade head
+.venv/Scripts/python.exe -m alembic revision --autogenerate -m "message"
+```
+
+Run from the repo root. See `alembic/README` for more commands; always review an autogenerated
+revision before applying — it misses renames (sees them as a drop + add).
+
+### Everything via Docker Compose
+
+```
+docker compose up -d
+```
+
+Three services: `db` (Postgres 16, host port 5433→5432, seeded on first init by
+`docker-init/init-app-role.sh`, which creates the `APP_DB_USER` role), `back` (FastAPI, port 8000,
+`depends_on` `db`'s healthcheck), `front` (Vite dev server, port 5173, `depends_on` `back`'s
+`/health` healthcheck).
+
+**Currently broken:** `back`'s build `context` in `docker-compose.yml` is `./server`, but
+`server/Dockerfile` `COPY`s `research_assistant` and `server` as if the context were the repo root
+(it needs both packages, since `server/main.py` imports `research_assistant.graph`) — as it
+stands, `docker compose build back` fails. Fix by setting `context: .` with
+`dockerfile: server/Dockerfile`, or by reworking the Dockerfile to only need `./server`.
 
 ## Architecture
 
-The graph is defined in `research_assistant/graph.py` using `langgraph.graph.StateGraph` over the
-`ResearchState` TypedDict (`state.py`):
+### `research_assistant/` — the LangGraph agent
 
-- **`validate_input`** → conditional edge **`route_after_validate`**: checks `topic` length
-  (1–100 chars); routes to `error_print` (→ END) or into research on failure/success.
-- **`initial_research`** (registered under the node id `"intial_research"` — note the typo is
-  load-bearing, since `route_after_validate` returns that exact string as the routing target):
-  calls `llm_initial_research`, seeding `state["initial_research"]`.
-- **`llm_research`**: the core research-loop node. Builds its input from `initial_research` plus
-  all prior `research_steps[*]["content"]`, and appends a new `ResearchStep` to `research_steps`
-  (accumulated via `operator.add` on that field in `ResearchState`).
-- **`critical_analysis`**: conditional edge off `llm_research`. Calls `research_done` and loops
-  back to `llm_research` unless the research is done or `len(research_steps) >= retry_max_count`.
+`graph.py` builds a `langgraph.graph.StateGraph` over `ResearchState` (`state.py`, a `TypedDict`):
+
+- **`validate_input`**: strips/length-checks `topic` (1–100 chars), sets `error_message` on
+  failure.
+- Conditional edge **`route_after_validate`** → `"error_print"` or `"initial_plan"`.
+- **Verified landmine:** `graph.py` *also* adds a plain, unconditional
+  `add_edge("validate_input", "initial_plan")` right after the conditional edge. LangGraph fires
+  every outgoing edge from a node in the same step, so `initial_plan` (and everything downstream —
+  a full `llm_research`/`critical_analysis` loop with real LLM/tool calls) runs on **every**
+  invocation regardless of what `route_after_validate` decides, including when the topic is
+  invalid. It doesn't crash today only because `error_print` returns no state update, so there's
+  no write conflict — but an empty/oversized topic still burns a full research run before
+  returning, which isn't what US-1 ("reject empty input") implies. Remove the redundant `add_edge`
+  when touching this area.
+- **`initial_plan`** (node id) runs **`research_plan`** (function name) — the id and function name
+  diverge, so search for both if you're hunting for this node.
+- **`llm_research`**: the core loop node. Builds its prompt from `research_plan` plus every prior
+  `research_steps[*]["content"]` (each shown with its rating), calls the LLM (which may invoke
+  tools — see below), then extracts `<research>...</research>` content and a trailing
+  `research_rate=X` from the response text via regex, falling back to separate, focused LLM calls
+  when the model doesn't follow that format (`_extract_research_content`/`_extract_research_rate`
+  in `nodes.py`). Appends a new `ResearchStep` to `research_steps` (accumulated via `operator.add`).
+- **`critical_analysis`**: rates the latest step against `critique_threshold`; sets
+  `critical_analysis` to `""` if it passes, otherwise to the critique text (which becomes next
+  loop's revision instruction).
+- Conditional edge **`route_after_analysis`** → back to `llm_research` unless the critique passed
+  or `len(research_steps) >= retry_max_count`.
 - **`give_final_respond`**: picks the `research_steps` entry with the highest `research_rate` as
-  `final_response`.
-- **`error_print`**: prints `error_message` and ends the run.
+  `final_response`, and prints a summary.
+- **`error_print`**: prints `error_message`.
 
-`ResearchStep` (`state.py`) is `{content, tools_used, research_rate}`; `ResearchState` carries
-`topic`, `research_mode` (quick/thorough enum, for the US-8 stretch goal), `initial_research`,
-`research_steps` (append-only list), `retry_max_count` (default 3, per US-5), `error_message`,
-and `final_response`.
+`llm/model.py` wraps three providers behind one `ask(messages, model_family, model_name)` call
+(`ModelFamily.anthropic`/`openai`/`google`, via `langchain_anthropic`/`langchain_openai`/
+`langchain_google_genai`), bound to the tools in `llm/tools.py` (`get_current_date`,
+`search_in_web` via Tavily), and runs the tool-call loop itself (re-invoking the model until it
+stops requesting tools). The per-request BYOK API key travels through a `contextvars.ContextVar`
+(`set_api_key`/`reset_api_key`), not through `ResearchState` — state gets captured by LangSmith
+tracing, and a raw key has no business ending up there. Falls back to `API_KEY`/`OPENAI_API_KEY`/
+`GOOGLE_API_KEY` env vars when nothing sets the contextvar (e.g. running the graph directly,
+outside the server).
 
-**Known landmine:** `nodes.py` imports a function named `llm_research` from `llm.model` *and*
-defines its own node function also named `llm_research`. The module-level `def` shadows the
-import in `nodes.py`'s namespace, so the node function's call to `llm_research(input)` resolves
-to itself, not to `llm.model.llm_research` — an infinite-recursion bug. Be aware of this if you
-rename or touch either function; the fix is to rename one of the two (e.g. import the model
-function under an alias like `llm_research as generate_research_step`).
+`ResearchStep` is `{content, tools_used, research_rate}`. `ResearchState` also carries
+`research_mode` (quick/thorough — declared but not read by any node yet, the US-8 stretch goal),
+`model_family`/`model_name`, `research_plan`, `messages` (full LLM history via the `add_messages`
+reducer), `critical_analysis`, `retry_max_count`/`critique_threshold`, `error_message`, and
+`final_response`.
+
+### `server/` — FastAPI app
+
+- **`main.py`**: routes. Compiles the graph once in `lifespan` and stashes it on `app.state.agent`
+  so every request reuses the same compiled graph. `POST /research` is fire-and-forget: it creates
+  a `pending` `Research` row and runs the graph in a `BackgroundTasks` job (`_run_research`) on its
+  own DB session — deliberately separate from the request's session, since the background task
+  outlives the request. Status moves `pending` → `running` → `completed`/`failed`.
+- **`db/base.py`**: SQLAlchemy models — `User`, `Agent`, `AgentConfig` (one-to-one with `Agent`;
+  holds the BYOK `api_token` plus graph knobs like `retry_max_count`), `AuthToken` (SHA-256 hash of
+  a bearer token, never the plaintext), `Research`.
+- **`services/agent_service.py`**: `AgentService.invoke(topic)` builds the graph's initial state
+  from a persisted `AgentConfig` and runs it, setting/resetting the API-key contextvar around the
+  call.
+- **`services/db_service.py`**: generic async CRUD (`DBService[ModelType]`), handed out per-model
+  via the `get_db_service(Model)` dependency factory in `dependencies.py`.
+- **`dependencies.py`**: `get_current_user` (bearer token → `User`, 401 on missing/invalid),
+  `get_agent_service` (checks the request's `agent_id` belongs to the caller and has a config
+  before building an `AgentService` — `agent_id` is never trusted without this check).
+- Auth is opaque bearer tokens (`auth.py`: `secrets.token_urlsafe(32)`, SHA-256 hashed at rest) —
+  no JWTs, no expiry.
+
+### `frontend/`
+
+Vite + React + TypeScript, MUI for components, TanStack Query for server state, Zustand for the
+auth token (`store/authStore.ts`), React Router with a `RequireAuth` wrapper for protected routes.
+`src/api/*.ts` are thin fetch wrappers per resource (`auth`, `agents`, `research`); `src/api/types.ts`
+hand-mirrors the server's Pydantic models (`server/models/*.py`) 1:1 — there's no shared schema
+generation between the two sides, so keep them in sync by hand when server models change.
 
 ## Spec-driven development
 
@@ -103,6 +182,6 @@ folder before writing code. If one exists, follow it (`requirements.md` then
 ## Sensitive files
 
 `tokens.txt` at the repo root holds a live Anthropic API key in plain text. It is not referenced
-by any code (no `os.getenv`/`os.environ` usage in `research_assistant/`), so it appears to be a
-manually-pasted credential for local use. Never print/echo its contents, include it in commits,
-or copy it into other files.
+by any code (no `os.getenv`/`os.environ` usage reads it), so it appears to be a manually-pasted
+credential for local use. Never print/echo its contents, include it in commits, or copy it into
+other files.
