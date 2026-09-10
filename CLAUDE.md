@@ -86,11 +86,11 @@ Three services: `db` (Postgres 16, host port 5433→5432, seeded on first init b
 `depends_on` `db`'s healthcheck), `front` (Vite dev server, port 5173, `depends_on` `back`'s
 `/health` healthcheck).
 
-**Currently broken:** `back`'s build `context` in `docker-compose.yml` is `./server`, but
-`server/Dockerfile` `COPY`s `research_assistant` and `server` as if the context were the repo root
-(it needs both packages, since `server/main.py` imports `research_assistant.graph`) — as it
-stands, `docker compose build back` fails. Fix by setting `context: .` with
-`dockerfile: server/Dockerfile`, or by reworking the Dockerfile to only need `./server`.
+`back`'s Dockerfile lives at `server/Dockerfile`, but its build `context` in `docker-compose.yml`
+is `.` (the repo root), not `./server` — `server/main.py` imports `research_assistant.graph`, and
+`pyproject.toml` lives at the repo root, so the build needs both `research_assistant/` and
+`server/` plus `pyproject.toml` in its context. `context` and `dockerfile` are independent Compose
+settings: the Dockerfile can live anywhere, `context` just has to be wide enough for its `COPY`s.
 
 ## Architecture
 

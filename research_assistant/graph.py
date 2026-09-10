@@ -16,7 +16,6 @@ agent_builder.add_node("error_print", error_print)
 # Graph Edges
 agent_builder.add_edge(START, "validate_input")
 agent_builder.add_conditional_edges("validate_input", route_after_validate)
-agent_builder.add_edge("validate_input", "initial_plan")
 agent_builder.add_edge("initial_plan", "llm_research")
 agent_builder.add_edge("llm_research", "critical_analysis")
 agent_builder.add_conditional_edges("critical_analysis", route_after_analysis)

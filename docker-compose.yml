@@ -20,8 +20,8 @@ services:
 
   back:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     env_file:
       - .env
     environment:
