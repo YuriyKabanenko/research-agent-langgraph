@@ -123,6 +123,25 @@ async def create_agent(
     return AgentResponse(id=record.id, name=record.name, user_id=record.user_id, has_config=False)
 
 
+@app.patch("/agents/{agent_id}")
+async def update_agent(
+    agent_id: uuid.UUID,
+    body: AgentUpdateRequest,
+    agent_service: Annotated[DBService[Agent], Depends(get_db_service(Agent))],
+    config_service: Annotated[DBService[AgentConfigOrm], Depends(get_db_service(AgentConfigOrm))],
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentResponse:
+    agent_record = await agent_service.get(agent_id)
+    if agent_record is None or agent_record.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    updated = await agent_service.update(agent_id, name=body.name)
+    config_record = await config_service.get(agent_id)
+    return AgentResponse(
+        id=updated.id, name=updated.name, user_id=updated.user_id, has_config=config_record is not None
+    )
+
+
 @app.delete("/agents/{agent_id}", status_code=204)
 async def delete_agent(
     agent_id: uuid.UUID,
@@ -172,6 +191,66 @@ async def create_agent_config(
         model_family=body.model_family,
         model_name=body.model_name,
     )
+    return AgentConfigResponse(
+        agent_id=record.agent_id,
+        research_mode=record.research_mode,
+        retry_max_count=record.retry_max_count,
+        critique_threshold=record.critique_threshold,
+        model_family=record.model_family,
+        model_name=record.model_name,
+    )
+
+
+@app.get("/agents/{agent_id}/config")
+async def get_agent_config(
+    agent_id: uuid.UUID,
+    agent_service: Annotated[DBService[Agent], Depends(get_db_service(Agent))],
+    config_service: Annotated[DBService[AgentConfigOrm], Depends(get_db_service(AgentConfigOrm))],
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentConfigResponse:
+    agent_record = await agent_service.get(agent_id)
+    if agent_record is None or agent_record.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    record = await config_service.get(agent_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Agent has no config")
+
+    return AgentConfigResponse(
+        agent_id=record.agent_id,
+        research_mode=record.research_mode,
+        retry_max_count=record.retry_max_count,
+        critique_threshold=record.critique_threshold,
+        model_family=record.model_family,
+        model_name=record.model_name,
+    )
+
+
+@app.patch("/agents/{agent_id}/config")
+async def update_agent_config(
+    agent_id: uuid.UUID,
+    body: AgentConfigUpdateRequest,
+    agent_service: Annotated[DBService[Agent], Depends(get_db_service(Agent))],
+    config_service: Annotated[DBService[AgentConfigOrm], Depends(get_db_service(AgentConfigOrm))],
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentConfigResponse:
+    agent_record = await agent_service.get(agent_id)
+    if agent_record is None or agent_record.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    existing = await config_service.get(agent_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Agent has no config")
+
+    values = {
+        "research_mode": body.research_mode,
+        "retry_max_count": body.retry_max_count,
+        "critique_threshold": body.critique_threshold,
+    }
+    if body.api_token:
+        values["api_token"] = body.api_token
+
+    record = await config_service.update(agent_id, **values)
     return AgentConfigResponse(
         agent_id=record.agent_id,
         research_mode=record.research_mode,

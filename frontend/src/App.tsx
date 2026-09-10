@@ -8,6 +8,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { AgentsPage } from "./pages/AgentsPage";
 import { NewAgentPage } from "./pages/NewAgentPage";
 import { ConfigureAgentPage } from "./pages/ConfigureAgentPage";
+import { EditAgentPage } from "./pages/EditAgentPage";
 import { NewResearchPage } from "./pages/NewResearchPage";
 import { ResearchesPage } from "./pages/ResearchesPage";
 
@@ -32,6 +33,7 @@ function App() {
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/agents/new" element={<NewAgentPage />} />
             <Route path="/agents/:agentId/config" element={<ConfigureAgentPage />} />
+            <Route path="/agents/:agentId/edit" element={<EditAgentPage />} />
             <Route path="/research" element={<ResearchesPage />} />
             <Route path="/research/new" element={<NewResearchPage />} />
           </Route>

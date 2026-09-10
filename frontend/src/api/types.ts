@@ -35,6 +35,10 @@ export interface AgentCreateRequest {
   name: string;
 }
 
+export interface AgentUpdateRequest {
+  name: string;
+}
+
 export interface AgentResponse {
   id: string;
   name: string;
@@ -49,6 +53,14 @@ export interface AgentConfigCreateRequest {
   api_token: string;
   model_family: ModelFamily;
   model_name: string;
+}
+
+export interface AgentConfigUpdateRequest {
+  research_mode: ResearchMode;
+  retry_max_count: number;
+  critique_threshold: number;
+  // Omit or leave blank to keep the existing token.
+  api_token?: string;
 }
 
 export interface AgentConfigResponse {

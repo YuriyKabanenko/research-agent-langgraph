@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 interface ApiFetchOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
 }
 

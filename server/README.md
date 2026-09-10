@@ -105,6 +105,17 @@ curl -X POST http://127.0.0.1:8000/agents \
 Returns `201` with `{"id", "name", "user_id", "has_config": false}`. An agent isn't usable for
 research until it also has a config (below).
 
+### `PATCH /agents/{agent_id}` — rename an agent
+
+```
+curl -X PATCH http://127.0.0.1:8000/agents/<agent_id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "renamed-agent"}'
+```
+
+Returns `{"id", "name", "user_id", "has_config"}`. `404` if the agent doesn't exist or isn't yours.
+
 ### `POST /agents/{agent_id}/config` — configure an agent
 
 ```
@@ -117,6 +128,29 @@ curl -X POST http://127.0.0.1:8000/agents/<agent_id>/config \
 Returns `201` with `{"agent_id", "research_mode", "retry_max_count", "critique_threshold"}`
 (`api_token` is accepted but never echoed back). `404` if the agent doesn't exist or isn't yours,
 `409` if it already has a config (one config per agent).
+
+### `GET /agents/{agent_id}/config` — read an agent's config
+
+```
+curl http://127.0.0.1:8000/agents/<agent_id>/config -H "Authorization: Bearer <token>"
+```
+
+Returns `{"agent_id", "research_mode", "retry_max_count", "critique_threshold", "model_family",
+"model_name"}` (`api_token` is never returned). `404` if the agent doesn't exist, isn't yours, or
+has no config yet.
+
+### `PATCH /agents/{agent_id}/config` — update an agent's config
+
+```
+curl -X PATCH http://127.0.0.1:8000/agents/<agent_id>/config \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"research_mode": "thorough", "retry_max_count": 5, "critique_threshold": 7}'
+```
+
+Updates `research_mode`, `retry_max_count`, and `critique_threshold`. `api_token` is optional here
+— omit or leave it blank to keep the existing token, or include it to rotate it. `404` if the
+agent doesn't exist, isn't yours, or has no config yet.
 
 ### `POST /research` — start a research run
 
