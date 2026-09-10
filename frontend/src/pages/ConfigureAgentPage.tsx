@@ -1,4 +1,3 @@
-import { Container } from "@mui/material";
 import { useLocation, useParams } from "react-router-dom";
 import { AgentConfigForm } from "../components/AgentConfigForm";
 
@@ -18,9 +17,5 @@ export function ConfigureAgentPage() {
     return null;
   }
 
-  return (
-    <Container maxWidth="xs" sx={{ mt: 8 }}>
-      <AgentConfigForm agentId={agentId} agentName={state?.agentName ?? agentId} />
-    </Container>
-  );
+  return <AgentConfigForm agentId={agentId} agentName={state?.agentName ?? agentId} />;
 }

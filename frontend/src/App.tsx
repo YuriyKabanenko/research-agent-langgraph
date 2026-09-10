@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { CssBaseline } from "@mui/material";
 import { Navigate, Route, BrowserRouter, Routes } from "react-router-dom";
 import { RequireAuth } from "./routes/RequireAuth";
 import { useAuthToken } from "./hooks/useAuth";
@@ -11,6 +10,8 @@ import { ConfigureAgentPage } from "./pages/ConfigureAgentPage";
 import { EditAgentPage } from "./pages/EditAgentPage";
 import { NewResearchPage } from "./pages/NewResearchPage";
 import { ResearchesPage } from "./pages/ResearchesPage";
+import { ThemeModeProvider } from "./theme/ThemeModeContext";
+import { ConfirmDialogProvider } from "./components/ConfirmDialogProvider";
 
 const queryClient = new QueryClient();
 
@@ -21,25 +22,28 @@ function RootRedirect() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <CssBaseline />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<RootRedirect />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+    <ThemeModeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ConfirmDialogProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<RootRedirect />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
 
-          <Route element={<RequireAuth />}>
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/agents/new" element={<NewAgentPage />} />
-            <Route path="/agents/:agentId/config" element={<ConfigureAgentPage />} />
-            <Route path="/agents/:agentId/edit" element={<EditAgentPage />} />
-            <Route path="/research" element={<ResearchesPage />} />
-            <Route path="/research/new" element={<NewResearchPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </QueryClientProvider>
+              <Route element={<RequireAuth />}>
+                <Route path="/agents" element={<AgentsPage />} />
+                <Route path="/agents/new" element={<NewAgentPage />} />
+                <Route path="/agents/:agentId/config" element={<ConfigureAgentPage />} />
+                <Route path="/agents/:agentId/edit" element={<EditAgentPage />} />
+                <Route path="/research" element={<ResearchesPage />} />
+                <Route path="/research/new" element={<NewResearchPage />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </ConfirmDialogProvider>
+      </QueryClientProvider>
+    </ThemeModeProvider>
   );
 }
 
