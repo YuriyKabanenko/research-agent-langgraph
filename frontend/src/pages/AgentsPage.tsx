@@ -71,6 +71,16 @@ export function AgentsPage() {
                     )}
                   </TableCell>
                   <TableCell align="right">
+                    {agent.has_config && (
+                      <Button
+                        size="small"
+                        component={RouterLink}
+                        to={`/agents/${agent.id}/edit`}
+                        state={{ agentName: agent.name }}
+                      >
+                        Edit
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       color="error"

@@ -17,6 +17,10 @@ class AgentCreateRequest(BaseModel):
     name: str
 
 
+class AgentUpdateRequest(BaseModel):
+    name: str
+
+
 class AgentResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -31,6 +35,15 @@ class AgentConfigCreateRequest(BaseModel):
     api_token: str
     model_family: ModelFamily = DEFAULT_MODEL_FAMILY
     model_name: str = DEFAULT_MODEL_NAME
+
+
+class AgentConfigUpdateRequest(BaseModel):
+    research_mode: ResearchMode = ResearchMode.quick
+    retry_max_count: int = 3
+    critique_threshold: int = 6
+    # Omitted/blank keeps the existing token - unlike create, editing shouldn't force
+    # re-entering a secret the user already stored.
+    api_token: str | None = None
 
 
 class AgentConfigResponse(BaseModel):
