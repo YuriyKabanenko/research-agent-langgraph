@@ -1,25 +1,35 @@
 from langgraph.graph import StateGraph, START, END
-from research_assistant.state import ResearchState, ModelFamily
+from research_assistant.state import ResearchState, ModelFamily, ResearchLoopState
 from research_assistant.nodes import *
 from research_assistant.llm import model as llm_model
 
 agent_builder = StateGraph(ResearchState)
+research_loop_builder = StateGraph(ResearchLoopState)
+
+# Subgraph Research Loop Nodes
+research_loop_builder.add_node("llm_research", llm_research)
+research_loop_builder.add_node("critical_analysis", critical_analysis)
+
+# Subgraph Research Loop Edges
+research_loop_builder.add_edge(START, "llm_research")
+research_loop_builder.add_edge("llm_research", "critical_analysis")
+research_loop_builder.add_conditional_edges("critical_analysis", route_after_analysis)
+
+# Compile Subgraph Research Loop
+research_loop = research_loop_builder.compile()
 
 # Graph Nodes
 agent_builder.add_node("validate_input", validate_input)
 agent_builder.add_node("initial_plan", research_plan)
-agent_builder.add_node("llm_research", llm_research)
-agent_builder.add_node("critical_analysis", critical_analysis)
 agent_builder.add_node("give_final_respond", give_final_respond)
 agent_builder.add_node("error_print", error_print)
+agent_builder.add_node("research_loop", research_loop)
 
 # Graph Edges
 agent_builder.add_edge(START, "validate_input")
 agent_builder.add_conditional_edges("validate_input", route_after_validate)
-agent_builder.add_edge("initial_plan", "llm_research")
-agent_builder.add_edge("llm_research", "critical_analysis")
-agent_builder.add_conditional_edges("critical_analysis", route_after_analysis)
-
+agent_builder.add_edge("initial_plan", "research_loop")
+agent_builder.add_edge("research_loop", "give_final_respond")
 agent_builder.add_edge("error_print", END)
 agent_builder.add_edge("give_final_respond", END)
 

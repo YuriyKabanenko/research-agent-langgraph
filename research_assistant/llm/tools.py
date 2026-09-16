@@ -30,8 +30,3 @@ def search_in_web(query: str) -> str:
     return "\n\n".join(
         f"{r['title']}\n{r['url']}\n{r['content']}" for r in results
     )
-
-NAME_TO_TOOL = {
-    "get_current_date": get_current_date,
-    "search_in_web": search_in_web,
-}

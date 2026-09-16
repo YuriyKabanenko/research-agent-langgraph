@@ -19,9 +19,8 @@ class ResearchStep(TypedDict):
     research_rate: int
 
 
-class ResearchState(TypedDict):
+class _SharedResearchFields(TypedDict):
     topic: Annotated[str, "The research topic being investigated."]
-    research_mode: Annotated[ResearchMode, "The mode of research being conducted (quick or thorough)."] = ResearchMode.quick
     model_family: Annotated[ModelFamily, "Which LLM provider family to run research on."] = ModelFamily.anthropic
     model_name: Annotated[str, "The specific model name to use within model_family."] = ""
     research_plan: Annotated[str, "The research plan outlining the steps to be taken during the research process."] = ""
@@ -30,5 +29,13 @@ class ResearchState(TypedDict):
     critical_analysis: Annotated[str, "A critical analysis of the research steps taken, highlighting any gaps or areas for improvement."] = ""
     retry_max_count: Annotated[int, "The max number of times the research process can be retried."] = 3
     critique_threshold: Annotated[int, "Minimum critique rating (1-10) at which research is accepted as final."] = 6
+
+
+class ResearchLoopState(_SharedResearchFields):
+    pass
+
+
+class ResearchState(_SharedResearchFields):
+    research_mode: Annotated[ResearchMode, "The mode of research being conducted (quick or thorough)."] = ResearchMode.quick
     error_message: Annotated[str, "An error message describing any issues encountered during the research process."] = ""
     final_response: Annotated[ResearchStep, "The final response generated after completing the research process."] = ""

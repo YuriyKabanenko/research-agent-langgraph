@@ -1,6 +1,7 @@
 import re
 from langchain_core.messages import SystemMessage, HumanMessage
-from research_assistant.state import ResearchState, ResearchStep
+from langgraph.graph import END
+from research_assistant.state import ResearchState, ResearchLoopState, ResearchStep
 from typing import Literal
 import research_assistant.llm.model as model
 from research_assistant.prompts import (
@@ -113,7 +114,7 @@ def research_plan(state: ResearchState):
     return {"research_plan": plan}
 
 # Research node. Core of researching process.
-def llm_research(state: ResearchState):
+def llm_research(state: ResearchLoopState):
     if state["critical_analysis"]:
         instruction = "Fix research accroding to this analysis: " + state["critical_analysis"]
     else:
@@ -153,7 +154,7 @@ def llm_research(state: ResearchState):
     }
 
 # Critical analysis node. Rates the latest research step and decides whether it clears the bar.
-def critical_analysis(state: ResearchState):
+def critical_analysis(state: ResearchLoopState):
     system = _system_message(CRITIQUE_SYSTEM_PROMPT)
     human = HumanMessage( "Topic: " + state["topic"] + "\n" + state["research_steps"][-1]["content"])
 
@@ -177,9 +178,9 @@ def critical_analysis(state: ResearchState):
     }
 
 # Conditional edge func. Check if the research is done or not and then proceed to the next node.
-def route_after_analysis(state: ResearchState) -> Literal["llm_research", "give_final_respond"]:
+def route_after_analysis(state: ResearchLoopState) -> Literal["llm_research", "__end__"]:
     if state["critical_analysis"] == "" or len(state["research_steps"]) >= state["retry_max_count"] :
-        return "give_final_respond"
+        return END
     else:
         return "llm_research"
 
