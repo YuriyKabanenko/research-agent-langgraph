@@ -19,6 +19,13 @@ class ResearchStep(TypedDict):
     research_rate: int
 
 
+class SubtopicResult(TypedDict):
+    topic: str
+    content: str
+    tools_used: list[str]
+    research_rate: int
+
+
 class _SharedResearchFields(TypedDict):
     topic: Annotated[str, "The research topic being investigated."]
     model_family: Annotated[ModelFamily, "Which LLM provider family to run research on."] = ModelFamily.anthropic
@@ -35,7 +42,16 @@ class ResearchLoopState(_SharedResearchFields):
     pass
 
 
+# Per-subtopic worker's own schema: the shared loop fields plus the reducer-backed list
+# each parallel Send-spawned branch appends its one result into.
+class SubtopicState(_SharedResearchFields):
+    subtopic_results: Annotated[list[SubtopicResult], "Per-subtopic research results, merged across parallel subtopic branches.", operator.add] = []
+
+
 class ResearchState(_SharedResearchFields):
     research_mode: Annotated[ResearchMode, "The mode of research being conducted (quick or thorough)."] = ResearchMode.quick
+    should_split_topic: Annotated[bool, "Whether the topic was judged complex enough to split into subtopics."] = False
+    subtopics: Annotated[list[str], "The subtopics the original topic was split into, when complex enough."] = []
+    subtopic_results: Annotated[list[SubtopicResult], "Per-subtopic research results, merged across parallel subtopic branches.", operator.add] = []
     error_message: Annotated[str, "An error message describing any issues encountered during the research process."] = ""
     final_response: Annotated[ResearchStep, "The final response generated after completing the research process."] = ""

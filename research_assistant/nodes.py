@@ -1,7 +1,14 @@
 import re
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import END
-from research_assistant.state import ResearchState, ResearchLoopState, ResearchStep
+from langgraph.types import Send
+from research_assistant.state import (
+    ResearchState,
+    ResearchLoopState,
+    ResearchStep,
+    SubtopicState,
+    SubtopicResult,
+)
 from typing import Literal
 import research_assistant.llm.model as model
 from research_assistant.prompts import (
@@ -10,6 +17,8 @@ from research_assistant.prompts import (
     CRITIQUE_SYSTEM_PROMPT,
     EXTRACT_RESEARCH_CONTENT_PROMPT,
     RATE_RESEARCH_SYSTEM_PROMPT,
+    ASSESS_TOPIC_COMPLEXITY_PROMPT,
+    SPLIT_TOPIC_PROMPT,
 )
 
 SYSTEM_MESSAGE_ID = "system"
@@ -26,6 +35,7 @@ def _system_message(prompt: str) -> SystemMessage:
 RESEARCH_TAG_RE = re.compile(r"<research>(.*?)</research>", re.DOTALL)
 RESEARCH_RATE_RE = re.compile(r"research_rate\s*=\s*(\d+)")
 CRITIQUE_RATE_RE = re.compile(r"critique_rate\s*=\s*(\d+)")
+SPLIT_TOPIC_RE = re.compile(r"split_topic\s*=\s*(yes|no)", re.IGNORECASE)
 
 
 def _extract_research_content(response_text: str, model_family, model_name: str) -> str:
@@ -60,7 +70,7 @@ def _extract_research_rate(
         model_name=model_name,
     )
     fallback_text = fallback[-1].content.strip()
-    return int(re.search(r"\d+", fallback_text).group())
+    return _first_int(fallback_text, default=5)
 
 
 def _extract_critique_rate(
@@ -78,11 +88,28 @@ def _extract_critique_rate(
         model_name=model_name,
     )
     fallback_text = fallback[-1].content.strip()
-    return int(re.search(r"\d+", fallback_text).group())
+    return _first_int(fallback_text, default=5)
 
 
 def _tools_used(new_messages: list) -> list[str]:
     return [t["name"] for m in new_messages for t in getattr(m, "tool_calls", [])]
+
+
+def _first_int(text: str, default: int) -> int:
+    # Even the fallback rating call can come back without a digit at all (e.g. the
+    # model apologizes instead of complying) - fall back to a neutral mid-scale rating
+    # rather than crashing the whole branch on `.group()` of a None match.
+    match = re.search(r"\d+", text)
+    return int(match.group()) if match else default
+
+
+def _parse_subtopics(text: str) -> list[str]:
+    subtopics = []
+    for line in text.splitlines():
+        cleaned = re.sub(r"^[\s\-\*\d\.\)]+", "", line).strip()
+        if cleaned:
+            subtopics.append(cleaned)
+    return subtopics
 
 
 # Conditional edge func. Check if the input is valid and then proceed to the next node.
@@ -95,11 +122,113 @@ def validate_input(state: ResearchState):
 
     return {"topic": topic}
 
-def route_after_validate(state: ResearchState) -> Literal["error_print", "initial_plan"]:
+def route_after_validate(state: ResearchState) -> Literal["error_print", "assess_topic_complexity"]:
     if len(state["error_message"]) > 0:
         return "error_print"
     else:
+        return "assess_topic_complexity"
+
+# LLM call deciding whether the topic is complex enough to split into subtopics.
+def assess_topic_complexity(state: ResearchState):
+    system = _system_message(ASSESS_TOPIC_COMPLEXITY_PROMPT)
+    human = HumanMessage("Topic: " + state["topic"])
+
+    new_messages = model.ask(
+        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    )
+    verdict = new_messages[-1].content.strip()
+    match = SPLIT_TOPIC_RE.search(verdict)
+    should_split = bool(match) and match.group(1).lower() == "yes"
+
+    return {
+        "messages": [system, human, new_messages[-1]],
+        "should_split_topic": should_split,
+    }
+
+def route_after_complexity(state: ResearchState) -> Literal["initial_plan", "split_topic"]:
+    if state["should_split_topic"]:
+        return "split_topic"
+    else:
         return "initial_plan"
+
+# LLM call breaking a complex topic down into narrower subtopics to research in parallel.
+def split_topic(state: ResearchState):
+    system = _system_message(SPLIT_TOPIC_PROMPT)
+    human = HumanMessage("Topic: " + state["topic"])
+
+    new_messages = model.ask(
+        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    )
+    subtopics = _parse_subtopics(new_messages[-1].content)
+    if not subtopics:
+        # Model didn't return anything parseable - fall back to a single "subtopic"
+        # equal to the original topic so the fan-out below still has something to do.
+        subtopics = [state["topic"]]
+
+    return {
+        "messages": [system, human, new_messages[-1]],
+        "subtopics": subtopics,
+    }
+
+# Conditional edge func. Fans out one parallel `subtopic_worker` run per subtopic - each
+# Send's payload is the *entire* input state for that branch (it isn't merged with the
+# rest of the parent state), so it must include everything SubtopicState's nodes read.
+def route_to_subtopics(state: ResearchState) -> list[Send]:
+    return [
+        Send(
+            "subtopic_worker",
+            {
+                "topic": subtopic,
+                "model_family": state["model_family"],
+                "model_name": state["model_name"],
+                "research_plan": "",
+                "research_steps": [],
+                "messages": [],
+                "critical_analysis": "",
+                "retry_max_count": state["retry_max_count"],
+                "critique_threshold": state["critique_threshold"],
+                "subtopic_results": [],
+            },
+        )
+        for subtopic in state["subtopics"]
+    ]
+
+# Reduces one subtopic branch's research_steps down to its single best-rated result.
+def pick_subtopic_result(state: SubtopicState):
+    best = max(state["research_steps"], key=lambda step: step["research_rate"])
+    result = SubtopicResult(
+        topic=state["topic"],
+        content=best["content"],
+        tools_used=best["tools_used"],
+        research_rate=best["research_rate"],
+    )
+    return {"subtopic_results": [result]}
+
+# Fan-in node. By the time this runs, every parallel subtopic_worker branch has already
+# appended its result into subtopic_results via that field's operator.add reducer - no
+# manual "wait for all branches" logic needed here, just combine what's already there.
+def combine_subtopics(state: ResearchState):
+    results = state["subtopic_results"]
+    sections = [
+        f"## {r['topic']} (rated {r['research_rate']}/10)\n{r['content']}"
+        for r in results
+    ]
+    combined_content = "\n\n".join(sections)
+    tools_used = sorted({t for r in results for t in r["tools_used"]})
+    avg_rate = round(sum(r["research_rate"] for r in results) / len(results))
+
+    final = ResearchStep(content=combined_content, tools_used=tools_used, research_rate=avg_rate)
+
+    print("=" * 60)
+    print("FINAL RESEARCH RESULT (COMBINED FROM SUBTOPICS)")
+    print("=" * 60)
+    print(f"Subtopics: {len(results)}")
+    print(f"Average rate: {avg_rate}/10")
+    print("-" * 60)
+    print(combined_content)
+    print("=" * 60)
+
+    return {"final_response": final}
 
 def research_plan(state: ResearchState):
     system = _system_message("You are a research assistant. Please provide a research plan for the topic: " + state["topic"])

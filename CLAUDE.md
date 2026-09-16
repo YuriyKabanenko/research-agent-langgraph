@@ -15,11 +15,6 @@ critique isn't good enough — up to a configurable retry limit. Three parts liv
 - **`frontend/`** — a Vite + React + TypeScript SPA (MUI, TanStack Query, Zustand, React Router)
   that talks to the server.
 
-`user_stories.txt` at the repo root is the original client brief (US-1..US-8) plus a "known gaps"
-punch list from an earlier review of the first working version — consult it before changing graph
-behavior, but treat the gaps list as a point-in-time snapshot rather than a live TODO (e.g. it
-predates `search_in_web` being wired up as a real tool).
-
 ## Environment
 
 - Python virtualenv at `.venv/`. Activate it or call `.venv/Scripts/python.exe` directly (Windows).
@@ -41,17 +36,6 @@ predates `search_in_web` being wired up as a real tool).
   `frontend/vite.config.ts`).
 
 ## Running things
-
-### The LangGraph agent alone (CLI)
-
-```
-.venv/Scripts/python.exe -m research_assistant.main "your topic here"
-```
-
-Prints the winning research step's content, or an error message. `research_assistant/graph.py`
-still has its own leftover `if __name__ == "__main__":` block with a hardcoded topic and an
-initial-state dict missing the `critical_analysis` key — `main.py` is the real entrypoint; import
-`graph` as a module (`import research_assistant.graph`) rather than running it directly.
 
 ### The FastAPI server
 
@@ -185,3 +169,7 @@ folder before writing code. If one exists, follow it (`requirements.md` then
 by any code (no `os.getenv`/`os.environ` usage reads it), so it appears to be a manually-pasted
 credential for local use. Never print/echo its contents, include it in commits, or copy it into
 other files.
+
+## DO NOT
+
+NEVER run agent on your own. All of agent running/testing are done manually.
