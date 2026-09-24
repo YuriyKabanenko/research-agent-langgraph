@@ -2,7 +2,11 @@ import contextvars
 import os
 from functools import lru_cache
 
-from langchain_core.messages import ToolMessage, BaseMessage
+from langchain_core.messages import BaseMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+from typing_extensions import TypedDict, Annotated
 from research_assistant.state import ModelFamily
 from . import tools
 
@@ -61,6 +65,32 @@ def _build_client(model_family: ModelFamily, model_name: str, api_key: str | Non
     return client.bind_tools(_TOOLS)
 
 
+class _ToolLoopState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+@lru_cache(maxsize=32)
+def _build_tool_loop(model_family: ModelFamily, model_name: str, api_key: str | None):
+    # The agentic tool-call loop itself, expressed as a graph instead of a hand-written
+    # `while response.tool_calls:` - `tools_condition` routes to `tools` whenever the
+    # latest AIMessage requests a tool call and to END otherwise, and `ToolNode` does the
+    # dispatch/execution (including turning tool exceptions into an error ToolMessage the
+    # model can see, instead of the call crashing).
+    client = _build_client(model_family, model_name, api_key)
+
+    def call_model(state: _ToolLoopState):
+        return {"messages": [client.invoke(state["messages"])]}
+
+    builder = StateGraph(_ToolLoopState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode(_TOOLS))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+
+    return builder.compile()
+
+
 def ask(
     messages: list[BaseMessage],
     model_family: ModelFamily = DEFAULT_MODEL_FAMILY,
@@ -69,23 +99,7 @@ def ask(
     # `messages` must end with a HumanMessage. Returns only what this call produced -
     # any tool-call/tool-result round trip followed by the final AIMessage - never the
     # input, so callers can merge just the delta into their own persisted history.
-    client = _build_client(model_family, model_name, _resolve_api_key(model_family))
+    tool_loop = _build_tool_loop(model_family, model_name, _resolve_api_key(model_family))
 
-    context = list(messages)
-    new_messages = []
-    response = client.invoke(context)
-
-    while response.tool_calls:
-        context.append(response)
-        new_messages.append(response)
-        for t in response.tool_calls:
-            tool_func = tools.NAME_TO_TOOL.get(t["name"])
-            tool_response = tool_func.invoke(t["args"])
-            tool_message = ToolMessage(tool_response, tool_call_id=t["id"])
-            context.append(tool_message)
-            new_messages.append(tool_message)
-
-        response = client.invoke(context)
-
-    new_messages.append(response)
-    return new_messages
+    result = tool_loop.invoke({"messages": messages})
+    return result["messages"][len(messages):]

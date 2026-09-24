@@ -16,6 +16,15 @@ explanation of what is missing or could be improved."""
 EXTRACT_RESEARCH_CONTENT_PROMPT = """Extract only the research content from the text below and return
 it verbatim, with no extra commentary, tags, or formatting added."""
 
+ASSESS_TOPIC_COMPLEXITY_PROMPT = """You are assessing whether a research topic is broad or complex
+enough that it should be split into several narrower subtopics researched separately, versus being
+focused enough to research directly as a single topic. Reply in the format split_topic=yes or
+split_topic=no, followed by a short one-sentence reason."""
+
+SPLIT_TOPIC_PROMPT = """You are breaking a complex research topic down into 2-5 narrower,
+non-overlapping subtopics that together cover the original topic well. Reply with each subtopic
+on its own line, no numbering, bullets, or extra commentary - just the subtopic text itself."""
+
 def RATE_RESEARCH_SYSTEM_PROMPT(topic, plan):
     return f"""You are rating research notes for quality and completeness.
 Topic: {topic}

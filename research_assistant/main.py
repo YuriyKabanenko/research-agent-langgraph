@@ -19,6 +19,9 @@ def main():
         "critical_analysis": "",
         "retry_max_count": 3,
         "critique_threshold": 6,
+        "should_split_topic": False,
+        "subtopics": [],
+        "subtopic_results": [],
         "error_message": "",
         "final_response": "",
     }

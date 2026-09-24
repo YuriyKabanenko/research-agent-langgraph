@@ -26,12 +26,13 @@ def search_in_web(query: str) -> str:
     """
     response = tavily_client.search(query, max_results=3)
     results = response["results"]
-    
+
+    if not results:
+        # An empty string here becomes an empty tool_result content block, which
+        # Anthropic's API rejects outright ("user messages must have non-empty
+        # content") - give the model something to read instead.
+        return "No results found for this query."
+
     return "\n\n".join(
         f"{r['title']}\n{r['url']}\n{r['content']}" for r in results
     )
-
-NAME_TO_TOOL = {
-    "get_current_date": get_current_date,
-    "search_in_web": search_in_web,
-}
