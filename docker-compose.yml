@@ -1,3 +1,14 @@
+# Shared by migrate and back: same image, same env, same DB connection (as the
+# non-superuser APP_DB_USER role).
+x-back-common: &back-common
+  build:
+    context: .
+    dockerfile: server/Dockerfile
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+
 services:
   db:
     image: postgres:16-alpine
@@ -18,19 +29,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot: applies Alembic migrations, then exits. back only starts once this
+  # has exited 0, so the API never runs against an out-of-date schema.
+  migrate:
+    <<: *back-common
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
   back:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+    <<: *back-common
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s

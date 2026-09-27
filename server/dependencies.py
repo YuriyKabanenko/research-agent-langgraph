@@ -1,6 +1,9 @@
 from typing import Annotated, Callable
 
+import uuid
+
 from fastapi import Depends, Header, HTTPException, Request
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +22,11 @@ def get_agent(request: Request) -> CompiledStateGraph:
     # Built once in main.py's lifespan and stashed on app.state - this just hands
     # out the shared instance instead of rebuilding the compiled graph per request.
     return request.app.state.agent
+
+
+def get_checkpointer(request: Request) -> BaseCheckpointSaver:
+    # Opened in main.py's lifespan alongside the agent it was compiled into.
+    return request.app.state.checkpointer
 
 
 def get_db_service(model: type[ModelType]) -> Callable[..., DBService[ModelType]]:
@@ -58,19 +66,19 @@ async def get_current_user(
     return user
 
 
-async def get_agent_service(
-    body: ResearchRequest,
-    user: Annotated[User, Depends(get_current_user)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    agent: Annotated[CompiledStateGraph, Depends(get_agent)],
+async def build_agent_service(
+    agent_id: uuid.UUID,
+    user: User,
+    session: AsyncSession,
+    agent: CompiledStateGraph,
 ) -> AgentService:
     # Research must run against a caller-owned, persisted Agent - agent_id is
     # never trusted to belong to the caller without this check.
-    agent_row = await session.get(Agent, body.agent_id)
+    agent_row = await session.get(Agent, agent_id)
     if agent_row is None or agent_row.user_id != user.id:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    config_row = await session.get(AgentConfigOrm, body.agent_id)
+    config_row = await session.get(AgentConfigOrm, agent_id)
     if config_row is None:
         raise HTTPException(status_code=422, detail="Agent has no config")
 
@@ -83,3 +91,12 @@ async def get_agent_service(
         model_name=config_row.model_name,
     )
     return AgentService(agent=agent, config=config)
+
+
+async def get_agent_service(
+    body: ResearchRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    agent: Annotated[CompiledStateGraph, Depends(get_agent)],
+) -> AgentService:
+    return await build_agent_service(body.agent_id, user, session, agent)

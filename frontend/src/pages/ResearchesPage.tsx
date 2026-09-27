@@ -39,6 +39,7 @@ import { ResearchDetailDialog } from "../components/ResearchDetailDialog";
 const STATUS_COLOR: Record<ResearchStatus, ChipProps["color"]> = {
   pending: "default",
   running: "info",
+  awaiting_review: "warning",
   completed: "success",
   failed: "error",
 };
@@ -49,7 +50,9 @@ export function ResearchesPage() {
   const confirm = useConfirm();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
-  const [viewing, setViewing] = useState<ResearchResponse | null>(null);
+  // The id, not a snapshot of the run: the dialog then follows the list as it refetches
+  // (e.g. awaiting_review -> running right after a review is submitted).
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   async function handleDelete(run: ResearchResponse) {
     const ok = await confirm({
@@ -62,6 +65,7 @@ export function ResearchesPage() {
   }
 
   const rows = research.data ?? [];
+  const viewing = rows.find((run) => run.id === viewingId) ?? null;
 
   return (
     <Box>
@@ -128,14 +132,14 @@ export function ResearchesPage() {
                   <TableCell sx={{ maxWidth: 280, overflowWrap: "anywhere" }}>{run.topic}</TableCell>
                   <TableCell>{run.agent_name}</TableCell>
                   <TableCell>
-                    <Chip label={run.status} color={STATUS_COLOR[run.status]} size="small" />
+                    <Chip label={run.status.replace("_", " ")} color={STATUS_COLOR[run.status]} size="small" />
                   </TableCell>
                   <TableCell>{run.research_rate != null ? `${run.research_rate}/10` : "—"}</TableCell>
                   <TableCell>{new Date(run.created_at).toLocaleString()}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={0.5} sx={{ justifyContent: "flex-end" }}>
                       <Tooltip title="View details">
-                        <IconButton size="small" onClick={() => setViewing(run)}>
+                        <IconButton size="small" onClick={() => setViewingId(run.id)}>
                           <VisibilityOutlinedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -167,14 +171,14 @@ export function ResearchesPage() {
                   <Typography variant="subtitle2" sx={{ overflowWrap: "anywhere" }}>
                     {run.topic}
                   </Typography>
-                  <Chip label={run.status} color={STATUS_COLOR[run.status]} size="small" />
+                  <Chip label={run.status.replace("_", " ")} color={STATUS_COLOR[run.status]} size="small" />
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {run.agent_name} · {new Date(run.created_at).toLocaleDateString()}
                   {run.research_rate != null ? ` · ${run.research_rate}/10` : ""}
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-                  <Button size="small" startIcon={<VisibilityOutlinedIcon fontSize="small" />} onClick={() => setViewing(run)}>
+                  <Button size="small" startIcon={<VisibilityOutlinedIcon fontSize="small" />} onClick={() => setViewingId(run.id)}>
                     View
                   </Button>
                   <Button
@@ -193,7 +197,7 @@ export function ResearchesPage() {
         </Stack>
       )}
 
-      <ResearchDetailDialog run={viewing} onClose={() => setViewing(null)} />
+      <ResearchDetailDialog run={viewing} onClose={() => setViewingId(null)} />
     </Box>
   );
 }

@@ -1,7 +1,7 @@
 import re
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import END
-from langgraph.types import Send
+from langgraph.types import Command, Send, interrupt
 from research_assistant.state import (
     ResearchState,
     ResearchLoopState,
@@ -314,21 +314,48 @@ def route_after_analysis(state: ResearchLoopState) -> Literal["llm_research", "_
         return "llm_research"
 
 
-# Node for generating a final response based on researches
-def give_final_respond(state: ResearchState):
-    max_rated_response = max(state["research_steps"], key=lambda step: step["research_rate"])
+# Human-in-the-loop node. Pauses the graph (interrupt) until a human approves the
+# candidate draft or sends it back with feedback; the answer arrives via
+# Command(resume={"approved": bool, "feedback": str}).
+#
+# On resume this node re-runs from its first line and interrupt() returns the human's
+# answer instead of pausing - so nothing above interrupt() may have side effects.
+def human_review(state: ResearchState) -> Command[Literal["give_final_respond", "research_loop"]]:
+    # After a human-requested revision the latest step is what the human asked for,
+    # even if the AI rated an earlier step higher.
+    if state.get("human_feedback"):
+        candidate = state["research_steps"][-1]
+    else:
+        candidate = max(state["research_steps"], key=lambda step: step["research_rate"])
 
-    tools_used = ", ".join(max_rated_response["tools_used"]) if max_rated_response["tools_used"] else "none"
+    decision = interrupt({"candidate": candidate})
+
+    if decision["approved"]:
+        return Command(goto="give_final_respond", update={"final_response": candidate})
+
+    # The feedback goes into critical_analysis, which llm_research already treats as
+    # its revision instruction.
+    return Command(
+        goto="research_loop",
+        update={"critical_analysis": decision["feedback"], "human_feedback": decision["feedback"]},
+    )
+
+
+# Node for printing the final response approved in human_review
+def give_final_respond(state: ResearchState):
+    final_response = state["final_response"]
+
+    tools_used = ", ".join(final_response["tools_used"]) if final_response["tools_used"] else "none"
     print("=" * 60)
     print("FINAL RESEARCH RESULT")
     print("=" * 60)
-    print(f"Research rate: {max_rated_response['research_rate']}/10")
+    print(f"Research rate: {final_response['research_rate']}/10")
     print(f"Tools used: {tools_used}")
     print("-" * 60)
-    print(max_rated_response["content"])
+    print(final_response["content"])
     print("=" * 60)
 
-    return {"final_response": max_rated_response}
+    return {}
 
 def error_print(state: ResearchState):
     print("Error: " + state["error_message"])

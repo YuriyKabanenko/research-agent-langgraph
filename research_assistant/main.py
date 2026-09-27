@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from research_assistant.state import ResearchMode
-from research_assistant.graph import agent
+from langgraph.checkpoint.memory import InMemorySaver
+from research_assistant.graph import CHECKPOINT_SERDE, build_agent, run_with_cli_review
 import sys
 
 def main():
@@ -22,11 +23,12 @@ def main():
         "should_split_topic": False,
         "subtopics": [],
         "subtopic_results": [],
+        "human_feedback": "",
         "error_message": "",
         "final_response": "",
     }
     
-    result = agent.invoke(initial_state)
+    result = run_with_cli_review(build_agent(InMemorySaver(serde=CHECKPOINT_SERDE)), initial_state)
     
     if result.get("error_message"):
         print("Error:", result["error_message"])

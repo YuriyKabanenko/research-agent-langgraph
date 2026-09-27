@@ -1,4 +1,6 @@
+import { useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -9,12 +11,17 @@ import {
   Divider,
   IconButton,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
+import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
+import { ApiError } from "../api/client";
 import type { ResearchResponse } from "../api/types";
 import { downloadResearchMarkdown } from "../utils/downloadResearch";
+import { useReviewResearch } from "../hooks/useResearch";
 
 interface ResearchDetailDialogProps {
   run: ResearchResponse | null;
@@ -58,6 +65,18 @@ export function ResearchDetailDialog({ run, onClose }: ResearchDetailDialogProps
                 <Divider sx={{ mb: 2 }} />
               </>
             )}
+            {run.status === "awaiting_review" && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                This is a draft waiting for your review. Approve it to make it the final result, or send
+                it back with feedback for another revision.
+              </Alert>
+            )}
+            {run.status === "running" && run.research && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Showing the last draft - the run is still in progress. Refresh the list to check for
+                updates.
+              </Alert>
+            )}
             {run.status === "failed" ? (
               <Typography color="error.main">{run.error_message}</Typography>
             ) : (
@@ -72,6 +91,8 @@ export function ResearchDetailDialog({ run, onClose }: ResearchDetailDialogProps
                 {run.research ?? "No content yet."}
               </Box>
             )}
+            {/* Keyed by run so feedback typed for one run never carries over to another. */}
+            {run.status === "awaiting_review" && <ReviewPanel key={run.id} researchId={run.id} />}
           </DialogContent>
           <DialogActions sx={{ px: 3, py: 1.5 }}>
             {run.status === "completed" && (
@@ -89,5 +110,50 @@ export function ResearchDetailDialog({ run, onClose }: ResearchDetailDialogProps
         </>
       )}
     </Dialog>
+  );
+}
+
+function ReviewPanel({ researchId }: { researchId: string }) {
+  const review = useReviewResearch(researchId);
+  const [feedback, setFeedback] = useState("");
+  const hasFeedback = feedback.trim().length > 0;
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Divider sx={{ mb: 2 }} />
+      <TextField
+        label="Feedback for the next revision"
+        placeholder="What should be fixed, added, or dug into deeper?"
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        disabled={review.isPending}
+        multiline
+        minRows={3}
+        fullWidth
+      />
+      {review.isError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {review.error instanceof ApiError ? review.error.detail : "Failed to submit review"}
+        </Alert>
+      )}
+      <Stack direction="row" spacing={1} useFlexGap sx={{ mt: 2, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <Button
+          startIcon={<ReplayRoundedIcon fontSize="small" />}
+          disabled={!hasFeedback || review.isPending}
+          onClick={() => review.mutate({ approved: false, feedback: feedback.trim() })}
+        >
+          Send back
+        </Button>
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={<CheckRoundedIcon fontSize="small" />}
+          disabled={review.isPending}
+          onClick={() => review.mutate({ approved: true })}
+        >
+          Approve
+        </Button>
+      </Stack>
+    </Box>
   );
 }

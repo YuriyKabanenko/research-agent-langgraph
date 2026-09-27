@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as researchApi from "../api/research";
-import type { ResearchRequest } from "../api/types";
+import type { ResearchRequest, ReviewRequest } from "../api/types";
 
 export function useResearches() {
   return useQuery({ queryKey: ["research"], queryFn: researchApi.listResearch });
@@ -10,6 +10,14 @@ export function useCreateResearch() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: ResearchRequest) => researchApi.createResearch(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["research"] }),
+  });
+}
+
+export function useReviewResearch(researchId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ReviewRequest) => researchApi.submitReview(researchId, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["research"] }),
   });
 }

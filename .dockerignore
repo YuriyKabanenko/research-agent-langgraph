@@ -1,0 +1,11 @@
+# Build context for server/Dockerfile is the repo root - keep it to what the image
+# actually COPYs, so rebuilds don't ship the venv, node_modules or secrets to the daemon.
+.git
+.venv
+**/__pycache__
+frontend
+specs
+research_assistant/specs
+.env
+*.env
+tokens.txt

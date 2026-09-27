@@ -7,6 +7,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY research_assistant ./research_assistant
 COPY server ./server
+# For the migrate service in docker-compose.yml, which runs `alembic upgrade head`
+# from this same image.
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 RUN pip install --no-cache-dir -e .
 

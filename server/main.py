@@ -5,35 +5,63 @@ load_dotenv()
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Awaitable
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.graph.state import CompiledStateGraph
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
-from research_assistant.graph import agent as compiled_agent
+from research_assistant.graph import CHECKPOINT_SERDE, build_agent
 from server.auth import generate_token, hash_string
 from server.crypto import encrypt_token
 from server.db.base import Agent, AgentConfig as AgentConfigOrm, AuthToken, User, Research
-from server.db.session import async_session_factory, engine, get_db_session
-from server.dependencies import get_agent_service, get_current_user, get_db_service
+from server.db.session import CHECKPOINT_DATABASE_URL, async_session_factory, engine, get_db_session
+from server.dependencies import (
+    build_agent_service,
+    get_agent,
+    get_agent_service,
+    get_checkpointer,
+    get_current_user,
+    get_db_service,
+)
 from server.models.agent_models import *
 from server.models.auth_models import *
 from server.models.research_models import *
-from server.services.agent_service import AgentService
+from server.services.agent_service import AgentService, Paused, ResearchOutcome
 from server.services.db_service import DBService
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Compiled once here and shared via app.state - AgentService instances are
-    # built fresh per request but all reuse this same graph.
-    app.state.agent = compiled_agent
-    yield
+    # The checkpointer persists graph state to Postgres after every step, which is what
+    # lets a run paused in human_review be resumed later - even after a restart. A pool
+    # rather than a single connection, so concurrent research runs don't queue behind
+    # each other's checkpoint writes. autocommit/dict_row/prepare_threshold are what
+    # AsyncPostgresSaver expects from its connections.
+    async with AsyncConnectionPool(
+        CHECKPOINT_DATABASE_URL,
+        kwargs={"autocommit": True, "row_factory": dict_row, "prepare_threshold": 0},
+        open=False,
+    ) as pool:
+        checkpointer = AsyncPostgresSaver(pool, serde=CHECKPOINT_SERDE)
+        # Idempotent - creates/migrates the checkpointer's own checkpoint* tables,
+        # which Alembic deliberately ignores (see alembic/env.py include_object).
+        await checkpointer.setup()
+
+        # Compiled once here and shared via app.state - AgentService instances are
+        # built fresh per request but all reuse this same graph.
+        app.state.checkpointer = checkpointer
+        app.state.agent = build_agent(checkpointer)
+        yield
     # Release the pooled DB connections on shutdown.
     await engine.dispose()
 
@@ -89,13 +117,13 @@ async def login(
         select(User).where(User.password_hash == hash_string(body.password), User.name == body.name)
     )
     user = user.scalar_one_or_none()
-    
+
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
+
     new_token = generate_token()
     await token_service.create(token_hash=hash_string(new_token), user_id=user.id)
-    
+
     return LoginResponse(token=new_token)
 
 
@@ -269,30 +297,53 @@ async def _run_research(research_id: uuid.UUID, topic: str, agent_service: Agent
     async with async_session_factory() as session:
         research_service = DBService(session, Research)
         await research_service.update(research_id, status=ResearchStatus.running)
+        await _record_outcome(research_service, research_id, agent_service.start(research_id, topic))
 
-        try:
-            result = await agent_service.invoke(topic)
-        except ValueError as e:
-            await research_service.update(
-                research_id, status=ResearchStatus.failed, error_message=str(e)
-            )
-            return
-        except Exception:
-            logger.exception("Research %s failed unexpectedly", research_id)
-            await research_service.update(
-                research_id, status=ResearchStatus.failed, error_message="Internal error"
-            )
-            return
-    
-        
+
+async def _resume_research(
+    research_id: uuid.UUID, decision: dict, agent_service: AgentService
+) -> None:
+    # Same own-session reasoning as _run_research. The review endpoint has already
+    # moved the row to running.
+    async with async_session_factory() as session:
+        research_service = DBService(session, Research)
+        await _record_outcome(research_service, research_id, agent_service.resume(research_id, decision))
+
+
+async def _record_outcome(
+    research_service: DBService[Research],
+    research_id: uuid.UUID,
+    run: Awaitable[ResearchOutcome],
+) -> None:
+    try:
+        outcome = await run
+    except ValueError as e:
         await research_service.update(
-            research_id,
-            status=ResearchStatus.completed,
-            resarch=result["content"],
-            # Preserves first-seen order while dropping repeats from retries.
-            tools_used=list(dict.fromkeys(result["tools_used"])),
-            research_rate=result["research_rate"],
+            research_id, status=ResearchStatus.failed, error_message=str(e)
         )
+        return
+    except Exception:
+        logger.exception("Research %s failed unexpectedly", research_id)
+        await research_service.update(
+            research_id, status=ResearchStatus.failed, error_message="Internal error"
+        )
+        return
+
+    # A paused run stores the draft awaiting review in the same columns as a final
+    # result, so the client can show it through the existing research fields.
+    if isinstance(outcome, Paused):
+        status, step = ResearchStatus.awaiting_review, outcome.candidate
+    else:
+        status, step = ResearchStatus.completed, outcome.final
+
+    await research_service.update(
+        research_id,
+        status=status,
+        resarch=step["content"],
+        # Preserves first-seen order while dropping repeats from retries.
+        tools_used=list(dict.fromkeys(step["tools_used"])),
+        research_rate=step["research_rate"],
+    )
 
 
 @app.post("/research", status_code=202)
@@ -312,6 +363,42 @@ async def research(
     background_tasks.add_task(_run_research, record.id, body.topic, agent_service)
 
     return ResearchAcceptedResponse(id=record.id, status=record.status)
+
+
+@app.post("/research/{research_id}/review", status_code=202)
+async def review_research(
+    research_id: uuid.UUID,
+    body: ReviewRequest,
+    background_tasks: BackgroundTasks,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    agent: Annotated[CompiledStateGraph, Depends(get_agent)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> ResearchAcceptedResponse:
+    record = await session.get(Research, research_id)
+    if record is None or record.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Research not found")
+
+    # Resume with the agent the research was started with, never one from the request.
+    # Built before the status change below, so a failure here can't leave the row
+    # stuck in running.
+    agent_service = await build_agent_service(record.agent_id, user, session, agent)
+
+    # Conditional UPDATE instead of read-check-write: of two concurrent reviews (a
+    # double-click), only one can match status = awaiting_review, so the paused graph
+    # is resumed at most once.
+    result = await session.execute(
+        update(Research)
+        .where(Research.id == research_id, Research.status == ResearchStatus.awaiting_review)
+        .values(status=ResearchStatus.running)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=409, detail="Research is not awaiting review")
+    await session.commit()
+
+    decision = {"approved": body.approved, "feedback": body.feedback}
+    background_tasks.add_task(_resume_research, research_id, decision, agent_service)
+
+    return ResearchAcceptedResponse(id=research_id, status=ResearchStatus.running)
 
 
 @app.get("/research")
@@ -372,6 +459,7 @@ async def get_research(
 async def delete_research(
     research_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    checkpointer: Annotated[BaseCheckpointSaver, Depends(get_checkpointer)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> None:
     record = await session.get(Research, research_id)
@@ -380,3 +468,6 @@ async def delete_research(
 
     await session.delete(record)
     await session.commit()
+
+    # The research's graph state lives in the checkpointer under its id as thread_id.
+    await checkpointer.adelete_thread(str(research_id))
