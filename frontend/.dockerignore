@@ -1,0 +1,4 @@
+# The Dockerfile runs `npm install` inside the (Linux) image and then `COPY . .` -
+# without this, the host's node_modules (Windows native binaries) would overwrite it.
+node_modules
+dist

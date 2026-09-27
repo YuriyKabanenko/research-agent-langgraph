@@ -1,5 +1,10 @@
 import { apiFetch } from "./client";
-import type { ResearchAcceptedResponse, ResearchRequest, ResearchResponse } from "./types";
+import type {
+  ResearchAcceptedResponse,
+  ResearchRequest,
+  ResearchResponse,
+  ReviewRequest,
+} from "./types";
 
 export function listResearch(): Promise<ResearchResponse[]> {
   return apiFetch<ResearchResponse[]>("/research");
@@ -7,6 +12,10 @@ export function listResearch(): Promise<ResearchResponse[]> {
 
 export function createResearch(body: ResearchRequest): Promise<ResearchAcceptedResponse> {
   return apiFetch<ResearchAcceptedResponse>("/research", { method: "POST", body });
+}
+
+export function submitReview(researchId: string, body: ReviewRequest): Promise<ResearchAcceptedResponse> {
+  return apiFetch<ResearchAcceptedResponse>(`/research/${researchId}/review`, { method: "POST", body });
 }
 
 export function deleteResearch(researchId: string): Promise<void> {

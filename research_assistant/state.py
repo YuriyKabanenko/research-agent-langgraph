@@ -53,5 +53,6 @@ class ResearchState(_SharedResearchFields):
     should_split_topic: Annotated[bool, "Whether the topic was judged complex enough to split into subtopics."] = False
     subtopics: Annotated[list[str], "The subtopics the original topic was split into, when complex enough."] = []
     subtopic_results: Annotated[list[SubtopicResult], "Per-subtopic research results, merged across parallel subtopic branches.", operator.add] = []
+    human_feedback: Annotated[str, "The latest feedback a human gave in human_review when sending a draft back; empty until then."] = ""
     error_message: Annotated[str, "An error message describing any issues encountered during the research process."] = ""
     final_response: Annotated[ResearchStep, "The final response generated after completing the research process."] = ""

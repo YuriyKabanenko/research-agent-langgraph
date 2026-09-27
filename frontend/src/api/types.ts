@@ -5,7 +5,7 @@ export type ResearchMode = "quick" | "thorough";
 
 export type ModelFamily = "anthropic" | "openai" | "google";
 
-export type ResearchStatus = "pending" | "running" | "completed" | "failed";
+export type ResearchStatus = "pending" | "running" | "awaiting_review" | "completed" | "failed";
 
 // --- auth_models.py ---
 
@@ -77,6 +77,12 @@ export interface AgentConfigResponse {
 export interface ResearchRequest {
   topic: string;
   agent_id: string;
+}
+
+// Feedback is required (non-blank) when approved is false.
+export interface ReviewRequest {
+  approved: boolean;
+  feedback?: string;
 }
 
 export interface ResearchAcceptedResponse {

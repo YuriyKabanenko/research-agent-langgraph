@@ -2,12 +2,13 @@ import enum
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ResearchStatus(enum.Enum):
     pending = "pending"
     running = "running"
+    awaiting_review = "awaiting_review"
     completed = "completed"
     failed = "failed"
 
@@ -15,6 +16,19 @@ class ResearchStatus(enum.Enum):
 class ResearchRequest(BaseModel):
     topic: str = Field(min_length=5)
     agent_id: uuid.UUID
+
+
+class ReviewRequest(BaseModel):
+    approved: bool
+    feedback: str | None = None
+
+    @model_validator(mode="after")
+    def _feedback_required_to_send_back(self) -> "ReviewRequest":
+        if self.feedback is not None:
+            self.feedback = self.feedback.strip() or None
+        if not self.approved and self.feedback is None:
+            raise ValueError("feedback is required when approved is false")
+        return self
 
 
 class ResearchAcceptedResponse(BaseModel):

@@ -48,11 +48,15 @@ Useful flags:
 
 | Flag | Purpose |
 | --- | --- |
-| `--reload` | Auto-restart on source changes (dev only). |
+| `--reload` | Auto-restart on source changes (dev only). On Windows it also matters for the LangGraph checkpointer: async psycopg can't run on the default `ProactorEventLoop`, and `--reload` makes Uvicorn use a `SelectorEventLoop`. Without it, startup fails on Windows. Docker (Linux) is unaffected. |
 | `--host 0.0.0.0` | Bind all interfaces instead of just `127.0.0.1` (e.g. to reach it from another machine/container). |
 | `--port 8000` | Override the default port `8000`. |
 | `--workers N` | Run N worker processes. Not compatible with `--reload`; only use for production-style runs. |
 | `--log-level debug` | More verbose Uvicorn/app logging. |
+
+On startup the server also opens the LangGraph Postgres checkpointer and runs its
+`setup()`, which creates its own `checkpoint*` tables in the same database. They aren't Alembic
+migrations, and `alembic/env.py` excludes them from autogenerate.
 
 Once running, interactive docs are at `http://127.0.0.1:8000/docs` (Swagger UI) and
 `http://127.0.0.1:8000/redoc`.
@@ -183,6 +187,33 @@ curl http://127.0.0.1:8000/research/<id> \
 ```
 
 Returns `{"id", "topic", "status", "research", "error_message", "created_at", "agent_name"}`.
-`status` moves `pending` → `running` → `completed` or `failed`; `research` is `null` until
-`completed`, `error_message` is `null` unless `failed`. 404s if the id doesn't exist or belongs
-to another user.
+`status` moves `pending` → `running` → `awaiting_review` (see below) → `running` → … →
+`completed`, or to `failed` at any point. Complex topics that get split into subtopics skip review
+and go straight from `running` to `completed`. `research` holds the draft awaiting review while
+`awaiting_review`, and the final result once `completed`. `error_message` is `null` unless
+`failed`. 404s if the id doesn't exist or belongs to another user.
+
+### `POST /research/{id}/review` — approve or send back a draft
+
+When a run reaches `awaiting_review`, the graph is paused (its state is checkpointed in Postgres,
+so this survives a server restart) until you decide on the draft shown in `research`:
+
+```
+curl -X POST http://127.0.0.1:8000/research/<id>/review \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"approved": true}'
+
+curl -X POST http://127.0.0.1:8000/research/<id>/review \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"approved": false, "feedback": "Add concrete numbers for 2025"}'
+```
+
+Returns `202` with `{"id", "status": "running"}` and resumes the run in the background. Approving
+makes that exact draft the final result (`completed`). Sending it back revises the draft using
+your feedback, and the run returns to `awaiting_review` with the new draft. `422` if `approved` is
+`false` without a non-blank `feedback`. `404` if the research doesn't exist or isn't yours. `409`
+if it isn't `awaiting_review`, including the second of two quick submits.
+
+Deleting a research (`DELETE /research/{id}`) also deletes its checkpointed graph state.
