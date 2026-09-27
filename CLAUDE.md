@@ -25,6 +25,8 @@ back the result. Three parts:
   they miss renames).
 - Frontend: `cd frontend && npm install && npm run dev` (proxies `/api/*` to the server).
 - Everything in Docker: `./scripts/up.sh` (services `db`, `migrate`, `back`, `front`).
+- Free offline runs: `MOCK_LLM=1` / `MOCK_WEB_SEARCH=1` in `.env` swap in the fakes from
+  `research_assistant/llm/mock.py` (`MOCK_STREAM_DELAY` sets the per-chunk delay). Restart needed.
 
 ## Architecture
 

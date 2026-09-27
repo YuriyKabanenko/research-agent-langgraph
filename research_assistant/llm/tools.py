@@ -4,6 +4,8 @@ import os
 from langchain_core.tools import tool
 from tavily import TavilyClient
 
+from . import mock
+
 # Per-agent BYOK Tavily key, set by AgentService around the graph run - same reasoning
 # as the LLM key in model.py (kept out of state, so out of traces and checkpoints).
 #
@@ -50,6 +52,10 @@ def search_in_web(query: str) -> str:
         query: The search query, phrased like a search-engine query
             (keywords or a short question) rather than a full sentence.
     """
+    if mock.web_search_mocked():
+        # MOCK_WEB_SEARCH: canned results, no Tavily key or credits needed (llm/mock.py).
+        return mock.mock_search(query)
+
     try:
         # Built per call because the key is per agent. Construction is cheap (no
         # network), and a missing key raises here, inside the try, like any other failure.

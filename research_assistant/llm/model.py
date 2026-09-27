@@ -9,7 +9,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Annotated
 from research_assistant.state import ModelFamily
-from . import tools
+from . import mock, tools
 
 DEFAULT_MODEL_FAMILY = ModelFamily.anthropic
 DEFAULT_MODEL_NAME = "claude-haiku-4-5-20251001"
@@ -50,6 +50,10 @@ def _resolve_api_key(model_family: ModelFamily) -> str | None:
 
 @lru_cache(maxsize=32)
 def _build_client(model_family: ModelFamily, model_name: str, api_key: str | None):
+    if mock.llm_mocked():
+        # MOCK_LLM: offline fake for every family, no key or network needed (llm/mock.py).
+        # Checked per build, but the lru_cache means toggling it needs a process restart.
+        return mock.MockChatModel()
     if model_family == ModelFamily.anthropic:
         from langchain_anthropic import ChatAnthropic
 
