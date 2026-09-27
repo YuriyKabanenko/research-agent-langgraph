@@ -1,6 +1,7 @@
 import re
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import END
+from pydantic import BaseModel, Field
 from langgraph.types import Command, Send, interrupt
 from research_assistant.state import (
     ResearchState,
@@ -22,6 +23,7 @@ from research_assistant.prompts import (
 )
 
 SYSTEM_MESSAGE_ID = "system"
+MAX_SUBTOPICS = 5
 
 def _system_message(prompt: str) -> SystemMessage:
     # Anthropic accepts exactly one system prompt per call, always first in the list.
@@ -34,8 +36,6 @@ def _system_message(prompt: str) -> SystemMessage:
 
 RESEARCH_TAG_RE = re.compile(r"<research>(.*?)</research>", re.DOTALL)
 RESEARCH_RATE_RE = re.compile(r"research_rate\s*=\s*(\d+)")
-CRITIQUE_RATE_RE = re.compile(r"critique_rate\s*=\s*(\d+)")
-SPLIT_TOPIC_RE = re.compile(r"split_topic\s*=\s*(yes|no)", re.IGNORECASE)
 
 
 def _extract_research_content(response_text: str, model_family, model_name: str) -> str:
@@ -73,24 +73,6 @@ def _extract_research_rate(
     return _first_int(fallback_text, default=5)
 
 
-def _extract_critique_rate(
-    response_text: str, topic: str, plan: str, content: str, model_family, model_name: str
-) -> int:
-    match = CRITIQUE_RATE_RE.search(response_text)
-    if match:
-        return int(match.group(1))
-
-    # Model didn't follow the critique_rate=X format - fall back to rating the
-    # content directly with the shared rating prompt.
-    fallback = model.ask(
-        [SystemMessage(RATE_RESEARCH_SYSTEM_PROMPT(topic, plan)), HumanMessage(content)],
-        model_family=model_family,
-        model_name=model_name,
-    )
-    fallback_text = fallback[-1].content.strip()
-    return _first_int(fallback_text, default=5)
-
-
 def _tools_used(new_messages: list) -> list[str]:
     return [t["name"] for m in new_messages for t in getattr(m, "tool_calls", [])]
 
@@ -103,13 +85,33 @@ def _first_int(text: str, default: int) -> int:
     return int(match.group()) if match else default
 
 
-def _parse_subtopics(text: str) -> list[str]:
-    subtopics = []
-    for line in text.splitlines():
-        cleaned = re.sub(r"^[\s\-\*\d\.\)]+", "", line).strip()
-        if cleaned:
-            subtopics.append(cleaned)
-    return subtopics
+# Structured-output schemas. Field descriptions are sent to the model as part of the
+# schema, so they double as the formatting instructions. Free-text fields come before
+# the verdict fields on purpose: the model fills them in order, so it reasons first and
+# decides second instead of justifying a snap judgment.
+class TopicComplexity(BaseModel):
+    reason: str = Field(description="One short sentence explaining the decision.")
+    should_split: bool = Field(
+        description="True if the topic is broad enough to split into narrower subtopics "
+        "researched separately, false if it can be researched directly."
+    )
+
+
+class SubtopicList(BaseModel):
+    subtopics: list[str] = Field(
+        description=f"2-{MAX_SUBTOPICS} narrower, non-overlapping subtopics. Each item is "
+        "only the subtopic text itself - no numbering, preamble, or commentary."
+    )
+
+
+class CritiqueVerdict(BaseModel):
+    feedback: str = Field(
+        description="Short explanation of what is missing or could be improved in the notes."
+    )
+    rating: int = Field(
+        description="How ready the notes are to be a final answer, from 1 (barely addresses "
+        "the topic) to 10 (thorough, well-supported, directly relevant)."
+    )
 
 
 # Conditional edge func. Check if the input is valid and then proceed to the next node.
@@ -122,27 +124,34 @@ def validate_input(state: ResearchState):
 
     return {"topic": topic}
 
-def route_after_validate(state: ResearchState) -> Literal["error_print", "assess_topic_complexity"]:
+def route_after_validate(
+    state: ResearchState,
+) -> Literal["error_print", "assess_topic_complexity", "initial_plan"]:
     if len(state["error_message"]) > 0:
         return "error_print"
-    else:
-        return "assess_topic_complexity"
+    # Splitting runs a full research loop per subtopic, so it's opt-in per run. When it's
+    # off, the complexity check is skipped too - its only job is choosing whether to split.
+    # .get(): runs checkpointed before this flag existed lack it.
+    if not state.get("allow_topic_split", False):
+        return "initial_plan"
+    return "assess_topic_complexity"
 
 # LLM call deciding whether the topic is complex enough to split into subtopics.
 def assess_topic_complexity(state: ResearchState):
     system = _system_message(ASSESS_TOPIC_COMPLEXITY_PROMPT)
     human = HumanMessage("Topic: " + state["topic"])
 
-    new_messages = model.ask(
-        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    result = model.ask_structured(
+        [system, human],
+        TopicComplexity,
+        model_family=state["model_family"],
+        model_name=state["model_name"],
     )
-    verdict = new_messages[-1].content.strip()
-    match = SPLIT_TOPIC_RE.search(verdict)
-    should_split = bool(match) and match.group(1).lower() == "yes"
 
     return {
-        "messages": [system, human, new_messages[-1]],
-        "should_split_topic": should_split,
+        # Structured output isn't a chat message, so record the result as one for history.
+        "messages": [system, human, AIMessage(f"should_split={result.should_split}: {result.reason}")],
+        "should_split_topic": result.should_split,
     }
 
 def route_after_complexity(state: ResearchState) -> Literal["initial_plan", "split_topic"]:
@@ -156,17 +165,23 @@ def split_topic(state: ResearchState):
     system = _system_message(SPLIT_TOPIC_PROMPT)
     human = HumanMessage("Topic: " + state["topic"])
 
-    new_messages = model.ask(
-        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    result = model.ask_structured(
+        [system, human],
+        SubtopicList,
+        model_family=state["model_family"],
+        model_name=state["model_name"],
     )
-    subtopics = _parse_subtopics(new_messages[-1].content)
+    # The schema fixes the shape, not the count - cap it here, since every subtopic is a
+    # full parallel research loop.
+    subtopics = [s.strip() for s in result.subtopics if s.strip()][:MAX_SUBTOPICS]
     if not subtopics:
-        # Model didn't return anything parseable - fall back to a single "subtopic"
-        # equal to the original topic so the fan-out below still has something to do.
+        # Fall back to a single "subtopic" equal to the original topic so the fan-out
+        # below still has something to do.
         subtopics = [state["topic"]]
 
     return {
-        "messages": [system, human, new_messages[-1]],
+        # Structured output isn't a chat message, so record the result as one for history.
+        "messages": [system, human, AIMessage("\n".join(subtopics))],
         "subtopics": subtopics,
     }
 
@@ -187,6 +202,7 @@ def route_to_subtopics(state: ResearchState) -> list[Send]:
                 "critical_analysis": "",
                 "retry_max_count": state["retry_max_count"],
                 "critique_threshold": state["critique_threshold"],
+                "web_search_enabled": state.get("web_search_enabled", False),
                 "subtopic_results": [],
             },
         )
@@ -261,8 +277,14 @@ def llm_research(state: ResearchLoopState):
         f"Research so far:\n{research_so_far}\n\nAdditional instructions: {instruction}"
     )
 
+    # The only node allowed to use tools. Web search on top of the date tool only when
+    # the agent enabled it. .get(): runs checkpointed before this flag existed lack it.
     new_messages = model.ask(
-        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+        [system, human],
+        model_family=state["model_family"],
+        model_name=state["model_name"],
+        use_tools=True,
+        web_search=state.get("web_search_enabled", False),
     )
     response_text = new_messages[-1].content
     content = _extract_research_content(response_text, state["model_family"], state["model_name"])
@@ -287,23 +309,21 @@ def critical_analysis(state: ResearchLoopState):
     system = _system_message(CRITIQUE_SYSTEM_PROMPT)
     human = HumanMessage( "Topic: " + state["topic"] + "\n" + state["research_steps"][-1]["content"])
 
-    new_messages = model.ask(
-        [system, human], model_family=state["model_family"], model_name=state["model_name"]
+    verdict = model.ask_structured(
+        [system, human],
+        CritiqueVerdict,
+        model_family=state["model_family"],
+        model_name=state["model_name"],
     )
-    verdict = new_messages[-1].content
-    critique_rate = _extract_critique_rate(
-        verdict,
-        state["topic"],
-        state["research_plan"],
-        state["research_steps"][-1]["content"],
-        state["model_family"],
-        state["model_name"],
-    )
+    # The schema guarantees an int, not the 1-10 range - clamp instead of failing
+    # validation, since an out-of-range number still carries a usable judgment.
+    critique_rate = min(max(verdict.rating, 1), 10)
     research_is_done = critique_rate >= state["critique_threshold"]
 
     return {
-        "messages": [system, human, new_messages[-1]],
-        "critical_analysis": "" if research_is_done else verdict,
+        "messages": [system, human, AIMessage(f"critique_rate={critique_rate}\n{verdict.feedback}")],
+        # The feedback becomes llm_research's revision instruction on the next round.
+        "critical_analysis": "" if research_is_done else verdict.feedback,
     }
 
 # Conditional edge func. Check if the research is done or not and then proceed to the next node.

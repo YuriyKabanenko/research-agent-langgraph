@@ -16,6 +16,8 @@ class ResearchStatus(enum.Enum):
 class ResearchRequest(BaseModel):
     topic: str = Field(min_length=5)
     agent_id: uuid.UUID
+    # Opt-in: a complex topic then fans out into one full research loop per subtopic.
+    allow_topic_split: bool = False
 
 
 class ReviewRequest(BaseModel):

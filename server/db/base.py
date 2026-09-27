@@ -63,6 +63,10 @@ class AgentConfig(Base):
     api_token: Mapped[str] = mapped_column(nullable=False)
     model_family: Mapped[ModelFamily] = mapped_column(nullable=False)
     model_name: Mapped[str] = mapped_column(nullable=False)
+    web_search_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Fernet-encrypted like api_token. Set exactly when web_search_enabled is true -
+    # the config endpoints keep that invariant (disabling web search clears the key).
+    tavily_api_token: Mapped[Optional[str]] = mapped_column(nullable=True)
 
     agent: Mapped["Agent"] = relationship(back_populates="config")
 

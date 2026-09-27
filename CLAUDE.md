@@ -25,6 +25,8 @@ back the result. Three parts:
   they miss renames).
 - Frontend: `cd frontend && npm install && npm run dev` (proxies `/api/*` to the server).
 - Everything in Docker: `./scripts/up.sh` (services `db`, `migrate`, `back`, `front`).
+- Free offline runs: `MOCK_LLM=1` / `MOCK_WEB_SEARCH=1` in `.env` swap in the fakes from
+  `research_assistant/llm/mock.py` (`MOCK_STREAM_DELAY` sets the per-chunk delay). Restart needed.
 
 ## Architecture
 
@@ -40,7 +42,10 @@ reject → back to `research_loop` with the feedback). Complex topics fan out in
 
 `llm/model.py` wraps Anthropic/OpenAI/Google behind one `ask(...)` call and runs the tool-call loop
 itself (tools in `llm/tools.py`). The per-request API key travels via a `ContextVar`, never through
-`ResearchState`, so it can't leak into checkpoints or LangSmith traces.
+`ResearchState`, so it can't leak into checkpoints or LangSmith traces. The Tavily key works the
+same way (`llm/tools.py`), and web search is opt-in per agent (`web_search_enabled`). When the
+server has set the Tavily contextvar to `None`, the operator's `TAVILY_API_KEY` env var is never
+used, so deployed agents can't spend the operator's credits.
 
 ### `server/`
 

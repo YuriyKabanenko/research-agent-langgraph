@@ -199,6 +199,21 @@ async def delete_agent(
     await session.commit()
 
 
+def _config_response(record: AgentConfigOrm) -> AgentConfigResponse:
+    return AgentConfigResponse(
+        agent_id=record.agent_id,
+        research_mode=record.research_mode,
+        retry_max_count=record.retry_max_count,
+        critique_threshold=record.critique_threshold,
+        model_family=record.model_family,
+        model_name=record.model_name,
+        web_search_enabled=record.web_search_enabled,
+    )
+
+
+_TAVILY_KEY_REQUIRED = "A Tavily API key is required to enable web search"
+
+
 @app.post("/agents/{agent_id}/config", status_code=201)
 async def create_agent_config(
     agent_id: uuid.UUID,
@@ -211,6 +226,10 @@ async def create_agent_config(
     if agent_record is None or agent_record.user_id != user.id:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    tavily_api_token = (body.tavily_api_token or "").strip()
+    if body.web_search_enabled and not tavily_api_token:
+        raise HTTPException(status_code=422, detail=_TAVILY_KEY_REQUIRED)
+
     record = await config_service.create(
         agent_id=agent_id,
         research_mode=body.research_mode,
@@ -219,15 +238,11 @@ async def create_agent_config(
         api_token=encrypt_token(body.api_token),
         model_family=body.model_family,
         model_name=body.model_name,
+        web_search_enabled=body.web_search_enabled,
+        # A key sent with web search off is dropped, not stored - there'd be nothing to use it.
+        tavily_api_token=encrypt_token(tavily_api_token) if body.web_search_enabled else None,
     )
-    return AgentConfigResponse(
-        agent_id=record.agent_id,
-        research_mode=record.research_mode,
-        retry_max_count=record.retry_max_count,
-        critique_threshold=record.critique_threshold,
-        model_family=record.model_family,
-        model_name=record.model_name,
-    )
+    return _config_response(record)
 
 
 @app.get("/agents/{agent_id}/config")
@@ -245,14 +260,7 @@ async def get_agent_config(
     if record is None:
         raise HTTPException(status_code=404, detail="Agent has no config")
 
-    return AgentConfigResponse(
-        agent_id=record.agent_id,
-        research_mode=record.research_mode,
-        retry_max_count=record.retry_max_count,
-        critique_threshold=record.critique_threshold,
-        model_family=record.model_family,
-        model_name=record.model_name,
-    )
+    return _config_response(record)
 
 
 @app.patch("/agents/{agent_id}/config")
@@ -279,25 +287,32 @@ async def update_agent_config(
     if body.api_token:
         values["api_token"] = encrypt_token(body.api_token)
 
+    tavily_api_token = (body.tavily_api_token or "").strip()
+    values["web_search_enabled"] = body.web_search_enabled
+    if not body.web_search_enabled:
+        # Turning web search off also forgets the key - no reason to keep a secret
+        # around that nothing will use.
+        values["tavily_api_token"] = None
+    elif tavily_api_token:
+        values["tavily_api_token"] = encrypt_token(tavily_api_token)
+    elif existing.tavily_api_token is None:
+        raise HTTPException(status_code=422, detail=_TAVILY_KEY_REQUIRED)
+    # else: enabled, blank, key already stored - keep it.
+
     record = await config_service.update(agent_id, **values)
-    return AgentConfigResponse(
-        agent_id=record.agent_id,
-        research_mode=record.research_mode,
-        retry_max_count=record.retry_max_count,
-        critique_threshold=record.critique_threshold,
-        model_family=record.model_family,
-        model_name=record.model_name,
-    )
+    return _config_response(record)
 
 
-async def _run_research(research_id: uuid.UUID, topic: str, agent_service: AgentService) -> None:
+async def _run_research(
+    research_id: uuid.UUID, topic: str, allow_topic_split: bool, agent_service: AgentService
+) -> None:
     # Runs after the response has been sent, on its own DB session - the
     # request's session gets torn down independently and this can easily
     # outlive it.
     async with async_session_factory() as session:
         research_service = DBService(session, Research)
         await research_service.update(research_id, status=ResearchStatus.running)
-        await _record_outcome(research_service, research_id, agent_service.start(research_id, topic))
+        await _record_outcome(research_service, research_id, agent_service.start(research_id, topic, allow_topic_split))
 
 
 async def _resume_research(
@@ -360,7 +375,9 @@ async def research(
         user_id=user.id,
         agent_id=body.agent_id,
     )
-    background_tasks.add_task(_run_research, record.id, body.topic, agent_service)
+    background_tasks.add_task(
+        _run_research, record.id, body.topic, body.allow_topic_split, agent_service
+    )
 
     return ResearchAcceptedResponse(id=record.id, status=record.status)
 

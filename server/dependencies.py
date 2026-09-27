@@ -89,6 +89,10 @@ async def build_agent_service(
         critique_threshold=config_row.critique_threshold,
         model_family=config_row.model_family,
         model_name=config_row.model_name,
+        web_search_enabled=config_row.web_search_enabled,
+        tavily_token=(
+            decrypt_token(config_row.tavily_api_token) if config_row.tavily_api_token else None
+        ),
     )
     return AgentService(agent=agent, config=config)
 
