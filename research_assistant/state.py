@@ -36,6 +36,8 @@ class _SharedResearchFields(TypedDict):
     critical_analysis: Annotated[str, "A critical analysis of the research steps taken, highlighting any gaps or areas for improvement."] = ""
     retry_max_count: Annotated[int, "The max number of times the research process can be retried."] = 3
     critique_threshold: Annotated[int, "Minimum critique rating (1-10) at which research is accepted as final."] = 6
+    # Just the flag - the Tavily key itself travels via contextvar (llm/tools.py), never state.
+    web_search_enabled: Annotated[bool, "Whether llm_research may call the web-search tool."] = False
 
 
 class ResearchLoopState(_SharedResearchFields):

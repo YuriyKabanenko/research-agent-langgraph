@@ -1,8 +1,34 @@
-from langchain_core.tools import tool
-from tavily import TavilyClient
+import contextvars
 import os
 
-tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+from langchain_core.tools import tool
+from tavily import TavilyClient
+
+# Per-agent BYOK Tavily key, set by AgentService around the graph run - same reasoning
+# as the LLM key in model.py (kept out of state, so out of traces and checkpoints).
+#
+# Unlike the LLM key, "set to None" and "never set" mean different things here: the
+# server always sets it (None when the agent has no key), and then the env var is
+# never consulted - so a deployed server can't silently fall back to the operator's
+# own TAVILY_API_KEY and spend their credits. Only a caller that never set it at all
+# (the CLIs) falls back to the env var.
+_UNSET = object()
+_tavily_key_var: contextvars.ContextVar = contextvars.ContextVar(
+    "research_assistant_tavily_key", default=_UNSET
+)
+
+
+def set_tavily_api_key(api_key: str | None) -> contextvars.Token:
+    return _tavily_key_var.set(api_key)
+
+
+def reset_tavily_api_key(token: contextvars.Token) -> None:
+    _tavily_key_var.reset(token)
+
+
+def _resolve_tavily_key() -> str | None:
+    key = _tavily_key_var.get()
+    return os.getenv("TAVILY_API_KEY") if key is _UNSET else key
 
 @tool
 def get_current_date() -> str:
@@ -24,7 +50,20 @@ def search_in_web(query: str) -> str:
         query: The search query, phrased like a search-engine query
             (keywords or a short question) rather than a full sentence.
     """
-    response = tavily_client.search(query, max_results=3)
+    try:
+        # Built per call because the key is per agent. Construction is cheap (no
+        # network), and a missing key raises here, inside the try, like any other failure.
+        response = TavilyClient(api_key=_resolve_tavily_key()).search(query, max_results=3)
+    except Exception as e:
+        # Quota exhausted, bad/missing key, network down, ... - ToolNode would re-raise this and
+        # crash the whole research run, throwing away everything already paid for.
+        # Tell the model instead, and discourage it from burning more rounds retrying.
+        # Only the exception type goes back: the message could contain request details.
+        return (
+            f"Web search is unavailable ({type(e).__name__}). Do not call this tool "
+            "again; continue with the information you already have."
+        )
+
     results = response["results"]
 
     if not results:

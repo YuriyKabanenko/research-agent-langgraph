@@ -4,9 +4,9 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   FormControl,
-  IconButton,
-  InputAdornment,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -16,13 +16,11 @@ import {
   Typography,
 } from "@mui/material";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
-import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { useAgentConfig, useUpdateAgent, useUpdateAgentConfig } from "../hooks/useAgents";
 import { ApiError } from "../api/client";
 import type { ResearchMode } from "../api/types";
 import { FormCard } from "../components/FormCard";
+import { SecretTextField } from "../components/SecretTextField";
 
 interface EditAgentLocationState {
   agentName?: string;
@@ -46,15 +44,23 @@ export function EditAgentPage() {
   const [retryMaxCount, setRetryMaxCount] = useState(3);
   const [critiqueThreshold, setCritiqueThreshold] = useState(6);
   const [apiToken, setApiToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [tavilyApiToken, setTavilyApiToken] = useState("");
 
   useEffect(() => {
     if (config.data) {
       setResearchMode(config.data.research_mode);
       setRetryMaxCount(config.data.retry_max_count);
       setCritiqueThreshold(config.data.critique_threshold);
+      setWebSearchEnabled(config.data.web_search_enabled);
     }
   }, [config.data]);
+
+  // web_search_enabled on the server means a key is stored, so the field may stay
+  // blank (keep it). Enabling it for the first time needs a key - the server rejects
+  // that too, blocking it here just saves the round trip.
+  const hasStoredTavilyKey = config.data?.web_search_enabled ?? false;
+  const missingTavilyKey = webSearchEnabled && !hasStoredTavilyKey && !tavilyApiToken.trim();
 
   if (!agentId) {
     return null;
@@ -73,6 +79,8 @@ export function EditAgentPage() {
           retry_max_count: retryMaxCount,
           critique_threshold: critiqueThreshold,
           ...(apiToken ? { api_token: apiToken } : {}),
+          web_search_enabled: webSearchEnabled,
+          ...(webSearchEnabled && tavilyApiToken ? { tavily_api_token: tavilyApiToken } : {}),
         },
       }),
     ]);
@@ -144,41 +152,52 @@ export function EditAgentPage() {
             />
           </Box>
 
-          <TextField
+          <SecretTextField
             label="API token"
-            type={showToken ? "text" : "password"}
             value={apiToken}
             onChange={(e) => setApiToken(e.target.value)}
             placeholder="Leave blank to keep current token"
             helperText="Only fill this in to replace the stored token."
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <VpnKeyOutlinedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowToken((v) => !v)}
-                      edge="end"
-                      size="small"
-                      aria-label={showToken ? "Hide token" : "Show token"}
-                    >
-                      {showToken ? (
-                        <VisibilityOffRoundedIcon fontSize="small" />
-                      ) : (
-                        <VisibilityRoundedIcon fontSize="small" />
-                      )}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
 
-          <Button type="submit" variant="contained" size="large" disabled={isSaving || config.isLoading}>
+          <Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={webSearchEnabled}
+                  onChange={(e) => setWebSearchEnabled(e.target.checked)}
+                  disabled={config.isLoading}
+                />
+              }
+              label="Enable web search"
+            />
+            <Typography variant="caption" color="text.secondary" component="p">
+              {hasStoredTavilyKey && !webSearchEnabled
+                ? "Saving with web search off removes the stored Tavily key."
+                : "Lets the agent search the web via Tavily, using your own Tavily API key."}
+            </Typography>
+          </Box>
+          {webSearchEnabled && (
+            <SecretTextField
+              label="Tavily API key"
+              value={tavilyApiToken}
+              onChange={(e) => setTavilyApiToken(e.target.value)}
+              required={!hasStoredTavilyKey}
+              placeholder={hasStoredTavilyKey ? "Leave blank to keep current key" : undefined}
+              helperText={
+                hasStoredTavilyKey
+                  ? "Only fill this in to replace the stored key."
+                  : "Encrypted at rest — never shown again after this."
+              }
+            />
+          )}
+
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            disabled={isSaving || config.isLoading || missingTavilyKey}
+          >
             {isSaving ? "Saving…" : "Save changes"}
           </Button>
         </Stack>

@@ -4,21 +4,17 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   FormControl,
-  IconButton,
-  InputAdornment,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
   Slider,
   Stack,
-  TextField,
   Typography,
 } from "@mui/material";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
-import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import { useCreateAgentConfig } from "../hooks/useAgents";
 import { ApiError } from "../api/client";
@@ -31,6 +27,7 @@ import {
   MODELS_BY_FAMILY,
 } from "../constants/models";
 import { FormCard } from "./FormCard";
+import { SecretTextField } from "./SecretTextField";
 
 interface AgentConfigFormProps {
   agentId: string;
@@ -45,7 +42,8 @@ export function AgentConfigForm({ agentId, agentName }: AgentConfigFormProps) {
   const [retryMaxCount, setRetryMaxCount] = useState(3);
   const [critiqueThreshold, setCritiqueThreshold] = useState(6);
   const [apiToken, setApiToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [tavilyApiToken, setTavilyApiToken] = useState("");
   const [modelFamily, setModelFamily] = useState<ModelFamily>(DEFAULT_MODEL_FAMILY);
   const [modelName, setModelName] = useState(DEFAULT_MODEL_NAME);
   const createAgentConfig = useCreateAgentConfig();
@@ -68,9 +66,14 @@ export function AgentConfigForm({ agentId, agentName }: AgentConfigFormProps) {
         api_token: apiToken,
         model_family: modelFamily,
         model_name: modelName,
+        web_search_enabled: webSearchEnabled,
+        ...(webSearchEnabled ? { tavily_api_token: tavilyApiToken } : {}),
       },
     });
   }
+
+  // The server rejects this too; blocking it here just saves the round trip.
+  const missingTavilyKey = webSearchEnabled && !tavilyApiToken.trim();
 
   if (createAgentConfig.isSuccess) {
     return (
@@ -181,40 +184,44 @@ export function AgentConfigForm({ agentId, agentName }: AgentConfigFormProps) {
             </Typography>
           </Box>
 
-          <TextField
+          <SecretTextField
             label="API token"
-            type={showToken ? "text" : "password"}
             value={apiToken}
             onChange={(e) => setApiToken(e.target.value)}
             required
             helperText="Encrypted at rest — never shown again after this."
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <VpnKeyOutlinedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowToken((v) => !v)}
-                      edge="end"
-                      size="small"
-                      aria-label={showToken ? "Hide token" : "Show token"}
-                    >
-                      {showToken ? (
-                        <VisibilityOffRoundedIcon fontSize="small" />
-                      ) : (
-                        <VisibilityRoundedIcon fontSize="small" />
-                      )}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
-          <Button type="submit" variant="contained" size="large" disabled={createAgentConfig.isPending}>
+
+          <Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={webSearchEnabled}
+                  onChange={(e) => setWebSearchEnabled(e.target.checked)}
+                />
+              }
+              label="Enable web search"
+            />
+            <Typography variant="caption" color="text.secondary" component="p">
+              Lets the agent search the web via Tavily, using your own Tavily API key.
+            </Typography>
+          </Box>
+          {webSearchEnabled && (
+            <SecretTextField
+              label="Tavily API key"
+              value={tavilyApiToken}
+              onChange={(e) => setTavilyApiToken(e.target.value)}
+              required
+              helperText="Encrypted at rest — never shown again after this."
+            />
+          )}
+
+          <Button
+            type="submit"
+            variant="contained"
+            size="large"
+            disabled={createAgentConfig.isPending || missingTavilyKey}
+          >
             {createAgentConfig.isPending ? "Saving…" : "Save config"}
           </Button>
         </Stack>

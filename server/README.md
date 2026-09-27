@@ -129,9 +129,15 @@ curl -X POST http://127.0.0.1:8000/agents/<agent_id>/config \
   -d '{"api_token": "<anthropic-api-key>", "research_mode": "quick", "retry_max_count": 3, "critique_threshold": 6}'
 ```
 
-Returns `201` with `{"agent_id", "research_mode", "retry_max_count", "critique_threshold"}`
-(`api_token` is accepted but never echoed back). `404` if the agent doesn't exist or isn't yours,
-`409` if it already has a config (one config per agent).
+Returns `201` with `{"agent_id", "research_mode", "retry_max_count", "critique_threshold",
+"model_family", "model_name", "web_search_enabled"}` (`api_token` is accepted but never echoed
+back). `404` if the agent doesn't exist or isn't yours, `409` if it already has a config (one
+config per agent).
+
+Web search is opt-in and bring-your-own-key: send `"web_search_enabled": true` together with
+`"tavily_api_token": "<tavily-api-key>"` (stored encrypted, never returned). Enabling it without a
+key is a `422`. Without it, the agent researches with no web search tool at all, and the server
+never falls back to its own `TAVILY_API_KEY`.
 
 ### `GET /agents/{agent_id}/config` — read an agent's config
 
@@ -140,7 +146,8 @@ curl http://127.0.0.1:8000/agents/<agent_id>/config -H "Authorization: Bearer <t
 ```
 
 Returns `{"agent_id", "research_mode", "retry_max_count", "critique_threshold", "model_family",
-"model_name"}` (`api_token` is never returned). `404` if the agent doesn't exist, isn't yours, or
+"model_name", "web_search_enabled"}` (`api_token` and `tavily_api_token` are never returned;
+`web_search_enabled: true` means a Tavily key is stored). `404` if the agent doesn't exist, isn't yours, or
 has no config yet.
 
 ### `PATCH /agents/{agent_id}/config` — update an agent's config
@@ -155,6 +162,10 @@ curl -X PATCH http://127.0.0.1:8000/agents/<agent_id>/config \
 Updates `research_mode`, `retry_max_count`, and `critique_threshold`. `api_token` is optional here
 — omit or leave it blank to keep the existing token, or include it to rotate it. `404` if the
 agent doesn't exist, isn't yours, or has no config yet.
+
+`web_search_enabled` defaults to `false` here, so send it on every update. With it `true`,
+`tavily_api_token` follows the same keep-if-blank rule (but is required, `422`, if no key is
+stored yet). With it `false`, the stored Tavily key is deleted.
 
 ### `POST /research` — start a research run
 

@@ -131,6 +131,7 @@ def main():
         "error_message": "",
         "retry_max_count": 3,
         "critique_threshold": 6,
+        "web_search_enabled": True,
     }
     result = run_with_cli_review(build_agent(InMemorySaver(serde=CHECKPOINT_SERDE)), initial_state)
 

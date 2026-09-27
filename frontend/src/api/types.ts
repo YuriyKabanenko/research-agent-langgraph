@@ -53,6 +53,9 @@ export interface AgentConfigCreateRequest {
   api_token: string;
   model_family: ModelFamily;
   model_name: string;
+  web_search_enabled: boolean;
+  // Required when web_search_enabled.
+  tavily_api_token?: string;
 }
 
 export interface AgentConfigUpdateRequest {
@@ -61,6 +64,9 @@ export interface AgentConfigUpdateRequest {
   critique_threshold: number;
   // Omit or leave blank to keep the existing token.
   api_token?: string;
+  web_search_enabled: boolean;
+  // Omit to keep the stored key while web search stays enabled; disabling clears it.
+  tavily_api_token?: string;
 }
 
 export interface AgentConfigResponse {
@@ -70,6 +76,8 @@ export interface AgentConfigResponse {
   critique_threshold: number;
   model_family: ModelFamily;
   model_name: string;
+  // True means a Tavily key is stored (the key itself is never returned).
+  web_search_enabled: boolean;
 }
 
 // --- research_models.py ---
