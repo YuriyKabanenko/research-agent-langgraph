@@ -22,6 +22,8 @@ def main():
         "critique_threshold": 6,
         # Local runs search with TAVILY_API_KEY from .env (nothing sets the contextvar here).
         "web_search_enabled": True,
+        # CLI: pass --split after the topic to allow fanning out into subtopics.
+        "allow_topic_split": "--split" in args[1:],
         "should_split_topic": False,
         "subtopics": [],
         "subtopic_results": [],

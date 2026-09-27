@@ -2,9 +2,12 @@ import { useState, type FormEvent } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
   Alert,
+  Box,
   Button,
+  Checkbox,
   CircularProgress,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -25,6 +28,7 @@ export function NewResearchPage() {
 
   const [agentId, setAgentId] = useState("");
   const [topic, setTopic] = useState("");
+  const [allowTopicSplit, setAllowTopicSplit] = useState(false);
 
   if (agents.isLoading) {
     return (
@@ -63,7 +67,10 @@ export function NewResearchPage() {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    createResearch.mutate({ topic, agent_id: agentId }, { onSuccess: () => navigate("/research") });
+    createResearch.mutate(
+      { topic, agent_id: agentId, allow_topic_split: allowTopicSplit },
+      { onSuccess: () => navigate("/research") },
+    );
   }
 
   return (
@@ -104,6 +111,18 @@ export function NewResearchPage() {
           helperText="At least 5 characters — be as specific as you like."
           slotProps={{ htmlInput: { minLength: 5 } }}
         />
+        <Box>
+          <FormControlLabel
+            control={
+              <Checkbox checked={allowTopicSplit} onChange={(e) => setAllowTopicSplit(e.target.checked)} />
+            }
+            label="Split complex topics into subtopics"
+          />
+          <Typography variant="caption" color="text.secondary" component="p">
+            If the topic is broad, it's researched as up to 5 subtopics in parallel. Can use several times
+            more tokens.
+          </Typography>
+        </Box>
         <Button type="submit" variant="contained" size="large" disabled={createResearch.isPending || !agentId}>
           {createResearch.isPending ? "Starting…" : "Start research"}
         </Button>

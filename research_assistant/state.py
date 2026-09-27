@@ -52,6 +52,7 @@ class SubtopicState(_SharedResearchFields):
 
 class ResearchState(_SharedResearchFields):
     research_mode: Annotated[ResearchMode, "The mode of research being conducted (quick or thorough)."] = ResearchMode.quick
+    allow_topic_split: Annotated[bool, "Whether complex topics may fan out into parallel subtopic research (costly, opt-in per run)."] = False
     should_split_topic: Annotated[bool, "Whether the topic was judged complex enough to split into subtopics."] = False
     subtopics: Annotated[list[str], "The subtopics the original topic was split into, when complex enough."] = []
     subtopic_results: Annotated[list[SubtopicResult], "Per-subtopic research results, merged across parallel subtopic branches.", operator.add] = []

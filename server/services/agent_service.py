@@ -32,7 +32,9 @@ class AgentService:
         self.agent = agent
         self.config = config
 
-    async def start(self, research_id: uuid.UUID, topic: str) -> ResearchOutcome:
+    async def start(
+        self, research_id: uuid.UUID, topic: str, allow_topic_split: bool = False
+    ) -> ResearchOutcome:
         initial_state = {
             "topic": topic,
             "research_mode": self.config.research_mode,
@@ -47,6 +49,7 @@ class AgentService:
             # Both conditions, so a config that somehow has the flag but no key never
             # gets offered a search tool that can only fail.
             "web_search_enabled": self.config.web_search_enabled and bool(self.config.tavily_token),
+            "allow_topic_split": allow_topic_split,
             "human_feedback": "",
             "error_message": "",
             "final_response": "",

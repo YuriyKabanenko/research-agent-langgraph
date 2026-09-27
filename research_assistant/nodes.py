@@ -124,11 +124,17 @@ def validate_input(state: ResearchState):
 
     return {"topic": topic}
 
-def route_after_validate(state: ResearchState) -> Literal["error_print", "assess_topic_complexity"]:
+def route_after_validate(
+    state: ResearchState,
+) -> Literal["error_print", "assess_topic_complexity", "initial_plan"]:
     if len(state["error_message"]) > 0:
         return "error_print"
-    else:
-        return "assess_topic_complexity"
+    # Splitting runs a full research loop per subtopic, so it's opt-in per run. When it's
+    # off, the complexity check is skipped too - its only job is choosing whether to split.
+    # .get(): runs checkpointed before this flag existed lack it.
+    if not state.get("allow_topic_split", False):
+        return "initial_plan"
+    return "assess_topic_complexity"
 
 # LLM call deciding whether the topic is complex enough to split into subtopics.
 def assess_topic_complexity(state: ResearchState):

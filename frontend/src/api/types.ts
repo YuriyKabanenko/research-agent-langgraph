@@ -85,6 +85,7 @@ export interface AgentConfigResponse {
 export interface ResearchRequest {
   topic: string;
   agent_id: string;
+  allow_topic_split?: boolean;
 }
 
 // Feedback is required (non-blank) when approved is false.

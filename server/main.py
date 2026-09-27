@@ -303,14 +303,16 @@ async def update_agent_config(
     return _config_response(record)
 
 
-async def _run_research(research_id: uuid.UUID, topic: str, agent_service: AgentService) -> None:
+async def _run_research(
+    research_id: uuid.UUID, topic: str, allow_topic_split: bool, agent_service: AgentService
+) -> None:
     # Runs after the response has been sent, on its own DB session - the
     # request's session gets torn down independently and this can easily
     # outlive it.
     async with async_session_factory() as session:
         research_service = DBService(session, Research)
         await research_service.update(research_id, status=ResearchStatus.running)
-        await _record_outcome(research_service, research_id, agent_service.start(research_id, topic))
+        await _record_outcome(research_service, research_id, agent_service.start(research_id, topic, allow_topic_split))
 
 
 async def _resume_research(
@@ -373,7 +375,9 @@ async def research(
         user_id=user.id,
         agent_id=body.agent_id,
     )
-    background_tasks.add_task(_run_research, record.id, body.topic, agent_service)
+    background_tasks.add_task(
+        _run_research, record.id, body.topic, body.allow_topic_split, agent_service
+    )
 
     return ResearchAcceptedResponse(id=record.id, status=record.status)
 
